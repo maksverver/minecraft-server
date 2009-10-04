@@ -23,6 +23,8 @@
 #define FRAME_USEC     250000   /* microseconds */
 #define SAVE_INTERVAL      30   /* seconds */
 
+#define MIN_BUFFER_SIZE  4000
+
 typedef struct Buffer
 {
     struct Buffer *next;
@@ -38,6 +40,7 @@ typedef struct Client
     Byte buf[4096];     /* incoming data buffer */
     int buf_pos;        /* incoming data buffer position */
     Buffer *output;     /* pending output buffers */
+    Buffer *output_end; /* last output buffer */
 
     Player pl;          /* player state */
 
@@ -60,21 +63,40 @@ static void write_client(Client *cl, Byte *buf, int len)
 
     if (written < len)
     {
-        Buffer **list = &cl->output;
-        while (*list) list = &(*list)->next;
-        *list = malloc(sizeof(Buffer) + len - written);
-        if (list == NULL)
+        Buffer *out;
+
+        buf += written;
+        len -= written;
+
+        if (cl->output_end && cl->output_end->len + len < MIN_BUFFER_SIZE)
         {
-            error("failed to allocate output buffer of size %d", len);
+            /* Enough free space in last buffer; reuse that */
+            out = cl->output_end;
         }
         else
         {
-            (*list)->next = NULL;
-            (*list)->data = (Byte*)((*list) + 1);
-            (*list)->len  = len - written;
-            (*list)->pos  = 0;
-            memcpy((*list)->data, buf + written, len - written);
+            /* Allocate new buffer */
+            out = malloc(sizeof(Buffer) +
+                         (len < MIN_BUFFER_SIZE) ? MIN_BUFFER_SIZE : len);
+            if (out == NULL)
+            {
+                error("failed to allocate output buffer for %d bytes", len);
+                return;
+            }
+
+            out->next = NULL;
+            out->data = (Byte*)(out + 1);
+            out->len  = 0;
+            out->pos  = 0;
+
+            if (!cl->output) cl->output = out;
+            if (cl->output_end) cl->output_end->next = out;
+            cl->output_end = out;
         }
+
+        /* Append to buffer */
+        memcpy(out->data + out->len, buf, len);
+        out->len += len;
     }
 }
 
@@ -577,6 +599,7 @@ static void transmit_pending_messages(struct timeval *time_left)
                     Buffer *next = cl->output->next;
                     free(cl->output);
                     cl->output = next;
+                    if (!next) cl->output_end = NULL;
                 }
             }
         }
