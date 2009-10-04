@@ -1,4 +1,6 @@
+#include "hooks.h"
 #include "level.h"
+#include "common/gzip.h"
 #include "common/logging.h"
 #include "common/protocol.h"
 #include <assert.h>
@@ -167,33 +169,63 @@ static void read_text(Byte **buf, int *len, char *out)
 
 static bool send_world_data(Client *cl)
 {
-    FILE *fp;
-    char block[1024];
-    int data_len, nmsg, i;
+    size_t  input_size;
+    char    *input;
+    size_t  level_size;
+    Type    *client_blocks;
+    int     x, y, z;
+    size_t  data_size;
+    char    *data;
+    int     nmsg, i;
 
-    save_if_dirty();
+    /* Allocate client data */
+    level_size = g_level->size.x * g_level->size.y * g_level->size.z;
+    input_size = 4 + level_size;
+    input = malloc(input_size);
+    if (input == NULL)
+    {
+        error("couldn't allocate memory for client data");
+        return false;
+    }
 
-    fp = fopen(LEVEL_FILE, "rb");
-    assert(fp != NULL);
-    fseek(fp, 0, SEEK_END);
-    data_len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    /* Create client data */
+    input[0] = (level_size >> 24);
+    input[1] = (level_size >> 16);
+    input[2] = (level_size >>  8);
+    input[3] = (level_size >>  0);
+    client_blocks = (Type*)(input + 4);
+    for (y = 0; y < g_level->size.y; ++y)
+    {
+        for (z = 0; z < g_level->size.z; ++z)
+        {
+            for (x = 0; x < g_level->size.x; ++x)
+            {
+                Type t = level_get_block(g_level, x, y, z);
+                t = hook_client_block_type(t);
+                client_blocks[x + g_level->size.x*(z + g_level->size.z*y)] = t;
+            }
+        }
+    }
 
-    nmsg = data_len/1024 + (data_len%1024 ? 1 : 0);
+    /* Compress block data */
+    data = gzip_compress(input, input_size, &data_size);
+    free(input);
+    if (data == NULL)
+    {
+        error("couldn't compress client block data");
+        return false;
+    }
+
+    /* Send client block data in a number of separate chunks */
+    nmsg = (data_size + 1023)/1024;
     for (i = 0; i < nmsg; ++i)
     {
-        const int block_len = (1024*(i + 1) <= data_len) ? 1024 : data_len%1024;
-        const int perc_done = 100*(1024*i + block_len)/data_len;
-
-        memset(block, 0, sizeof(block));
-        if (fread(block, block_len, 1, fp) != 1)
-        {
-            error("couldn't read world data");
-            return false;
-        }
-
-        send_message(cl, PROTO_DATA, block_len, block, perc_done);
+        int block_len = data_size - i*1024;
+        if (block_len > 1024) block_len = 1024;
+        send_message(cl, PROTO_DATA, block_len, data + 1024*i, 100*(i+1)/nmsg);
     }
+    free(data);
+
     return true;
 }
 
@@ -258,10 +290,39 @@ static void handle_player_HELO(Client *cl,
     info("client %d hailed with name `%s'", cl - g_clients, name);
 }
 
-static void on_block_update(int x, int y, int z, Type t)
+static void on_block_update(int x, int y, int z, Type old_t, Type new_t)
 {
-    broadcast_message(PROTO_MODN, x, y, z, t);
+    old_t = hook_client_block_type(old_t);
+    new_t = hook_client_block_type(new_t);
+    if (old_t != new_t)
+        broadcast_message(PROTO_MODN, x, y, z, new_t);
 }
+
+/* FIXME: risk of stack overflow here! */
+void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
+{
+    int d;
+    Type old_t = level_set_block(g_level, x, y, z, new_t);
+
+    if (old_t == new_t) return;
+
+    on_block_update(x, y, z, old_t, new_t);
+
+    for (d = 0; d < 6; ++d)
+    {
+        int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
+        if (valid_index(g_level, nx, ny, nz))
+        {
+            Type t = level_get_block(level, nx, ny, nz);
+            int v = hook_on_neighbour_change( level, nx, ny, nz, t,
+                                              (d + 3)%6, old_t, new_t );
+            if (v >= 0) update_block_recursive(level, nx, ny, nz, v);
+        }
+    }
+}
+
+    int hook_on_neighbour_change( Level *level, int x, int y, int z, Type t,
+                              int dir, Type old_t, Type new_t );
 
 static void handle_player_MODR(Client *cl,
     Short x, Short y, Short z, Byte action, Byte type)
@@ -270,8 +331,8 @@ static void handle_player_MODR(Client *cl,
         y >= 0 && y < g_level->size.y &&
         z >= 0 && z < g_level->size.z && (action == 0 || action == 1))
     {
-        int v = (action == 0) ? 0 : type;
-        level_set_block(g_level, x, y, z, (Type)v, &on_block_update);
+        int v = hook_authorize_update(g_level, x, y, z, action ? type : 0);
+        if (v >= 0) update_block_recursive(g_level, x, y, z, v);
     }
 }
 

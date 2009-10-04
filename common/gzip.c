@@ -16,8 +16,8 @@ void *gzip_compress(void *buf_in, size_t len_in, size_t *len_out)
     memset(&zs, 0, sizeof(zs));
     zs.next_in  = buf_in;
     zs.avail_in = len_in;
-    res = deflateInit2 (&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 0x1f /* gzip */,
-                             8 /* default mem level */, Z_DEFAULT_STRATEGY);
+    res = deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 0x1f /* gzip */,
+                            8 /* default mem level */, Z_DEFAULT_STRATEGY);
     while (res == Z_OK)
     {
         len *= 2;

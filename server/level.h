@@ -12,6 +12,8 @@
 #define LEVEL_NAME      "Level Name Goes Here"
 #define LEVEL_CREATOR   "Level Creator Goes Here"
 
+/* The six principal directions: */
+extern const int DX[6], DY[6], DZ[6];
 
 typedef unsigned char Type;
 
@@ -48,15 +50,18 @@ typedef struct Player
     float yaw, pitch;
 } Player;
 
-typedef void (block_update_cb)(int x, int y, int z, Type t);
+/*
+typedef void (block_update_cb)(int x, int y, int z, Type old_t, Type new_t);
+*/
 
 /* Level functions */
 void level_free(Level *level);
 Level *level_load(const char *path);
+bool valid_index(const Level *level, int x, int y, int z);
 bool level_save(Level *level, const char *path);
 Type level_get_block(const Level *level, int x, int y, int z);
-void level_set_block(Level *level, int x, int y, int z, Type t,
-                     block_update_cb *on_update);
+Type level_set_block(Level *level, int x, int y, int z, Type t /*,
+                     block_update_cb *on_update */ );
 void level_tick(Level *level);
 
 

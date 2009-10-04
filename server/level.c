@@ -6,7 +6,11 @@
 #include <zlib.h>
 #include <arpa/inet.h>
 
-static bool valid_index(const Level *level, int x, int y, int z)
+const const int DX[6] = { -1,  0,  0, +1,  0,  0 };
+const const int DY[6] = {  0, -1,  0,  0, +1,  0 };
+const const int DZ[6] = {  0,  0, -1,  0,  0, +1 };
+
+bool valid_index(const Level *level, int x, int y, int z)
 {
     return (unsigned)x < level->size.x &&
            (unsigned)y < level->size.y &&
@@ -126,23 +130,25 @@ Type level_get_block(const Level *level, int x, int y, int z)
     return level->blocks[idx(level, x, y, z)];
 }
 
-void level_set_block(Level *level, int x, int y, int z, Type t,
-                     block_update_cb *on_update)
+Type level_set_block(Level *level, int x, int y, int z, Type new_t /* ,
+                     block_update_cb *on_update */ )
 {
     if (!valid_index(level, x, y, z))
     {
         warn("invalid level index %d,%d,%d", x, y, z);
-        return;
+        return new_t;
     }
     else
     {
-        Type * b = &level->blocks[idx(level, x, y, z)];
-        if (*b != t)
+        size_t i = idx(level, x, y, z);
+        Type old_t = level->blocks[i];
+        if (old_t != new_t)
         {
-            *b = t;
-            (*on_update)(x, y, z, t);
-            level->dirty = true;
+            /* (*on_update)(x, y, z, old_t, new_t); */
+            level->blocks[i] = new_t;
+            level->dirty     = true;
         }
+        return old_t;
     }
 }
 

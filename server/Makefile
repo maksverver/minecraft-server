@@ -3,7 +3,7 @@ CFLAGS+=-I..
 LDFLAGS+=-lz
 LDLIBS+=../common/common.a
 
-SERVER_OBJS=level.o server.o
+SERVER_OBJS=hooks.o level.o server.o
 
 all: server
 
