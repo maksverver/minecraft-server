@@ -1,14 +1,7 @@
 #include "hooks.h"
 
-static bool is_sponge(Type t)
-{
-    
-}
-
-static bool is_fluid(Type t)
-{
-    return t >= 8 && t <= 11;
-}
+static bool is_sponge(Type t) { return t == 19; }
+static bool is_fluid(Type t) { return t >= 8 && t <= 11; }
 
 /* Returns a type of fluid adjacent to (but not below) x/y/z or 0. */
 static int adjacent_fluid(Level *level, int x, int y, int z)
@@ -25,12 +18,13 @@ static int adjacent_fluid(Level *level, int x, int y, int z)
     return 0;
 }
 
-int hook_authorize_update(Level *level, int x, int y, int z, Type t)
+int hook_authorize_update(Level *level, int x, int y, int z,
+                          Type old_t, Type new_t)
 {
     /* TODO: restrict user-placable block types here */
-    if (t > 40) return -1;
-    if (t == 0) t = adjacent_fluid(level, x, y, z);
-    return t;
+    if (new_t > 40) return -1;
+    if (new_t == 0) new_t = adjacent_fluid(level, x, y, z);
+    return new_t;
 }
 
 Type hook_client_block_type(Type t)
@@ -48,6 +42,7 @@ int hook_on_neighbour_change( Level *level, int x, int y, int z, Type t,
     else
     if (is_fluid(t))
     {
+        /* do something with sponge */
     }
 
     return -1;

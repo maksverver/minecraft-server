@@ -57,7 +57,7 @@ typedef void (block_update_cb)(int x, int y, int z, Type old_t, Type new_t);
 /* Level functions */
 void level_free(Level *level);
 Level *level_load(const char *path);
-bool valid_index(const Level *level, int x, int y, int z);
+bool level_index_valid(const Level *level, int x, int y, int z);
 bool level_save(Level *level, const char *path);
 Type level_get_block(const Level *level, int x, int y, int z);
 Type level_set_block(Level *level, int x, int y, int z, Type t /*,

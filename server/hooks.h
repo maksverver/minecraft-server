@@ -9,7 +9,8 @@
    Hook should returns the server block type to set the block to, or -1 to
    prevent updating the target block.
 */
-int hook_authorize_update(Level *level, int x, int y, int z, Type t);
+int hook_authorize_update(Level *level, int x, int y, int z,
+                          Type old_t, Type new_t);
 
 /* Called to map server block types to client block types. */
 Type hook_client_block_type(Type t);

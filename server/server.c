@@ -46,6 +46,20 @@ typedef struct Client
 
 } Client;
 
+typedef struct BlockUpdate {
+    Byte x, y, z;
+    Type old_t, new_t;
+} BlockUpdate;
+
+typedef struct BlockUpdateQueue
+{
+    BlockUpdate entries[1<<20];
+    int         pos, len, cap;
+    bool        overflow;
+} BlockUpdateQueue;
+
+
+
 static Level    *g_level;                   /* loaded level */
 static int      g_listen_fd;                /* TCP listen socket */
 static Client   g_clients[MAX_CLIENTS];     /* client slots */
@@ -57,27 +71,22 @@ static void write_client(Client *cl, Byte *buf, int len)
 
     if (written < 0)
     {
-        error("write to client %d failed\n", cl - g_clients);
+        warn("write to client %d failed\n", cl - g_clients);
         written = 0;
     }
 
     if (written < len)
     {
-        Buffer *out;
+        Buffer *out = cl->output_end;
 
         buf += written;
         len -= written;
 
-        if (cl->output_end && cl->output_end->len + len < MIN_BUFFER_SIZE)
-        {
-            /* Enough free space in last buffer; reuse that */
-            out = cl->output_end;
-        }
-        else
+        if (!out || out->len + len > MIN_BUFFER_SIZE)
         {
             /* Allocate new buffer */
             out = malloc(sizeof(Buffer) +
-                         (len < MIN_BUFFER_SIZE) ? MIN_BUFFER_SIZE : len);
+                         (len < MIN_BUFFER_SIZE ? MIN_BUFFER_SIZE : len));
             if (out == NULL)
             {
                 error("failed to allocate output buffer for %d bytes", len);
@@ -89,9 +98,10 @@ static void write_client(Client *cl, Byte *buf, int len)
             out->len  = 0;
             out->pos  = 0;
 
-            if (!cl->output) cl->output = out;
-            if (cl->output_end) cl->output_end->next = out;
-            cl->output_end = out;
+            if (!cl->output)
+                cl->output = cl->output_end = out;
+            else
+                cl->output_end = cl->output_end->next = out;
         }
 
         /* Append to buffer */
@@ -242,9 +252,12 @@ static bool send_world_data(Client *cl)
     nmsg = (data_size + 1023)/1024;
     for (i = 0; i < nmsg; ++i)
     {
+        char block_data[1024];
         int block_len = data_size - i*1024;
-        if (block_len > 1024) block_len = 1024;
-        send_message(cl, PROTO_DATA, block_len, data + 1024*i, 100*(i+1)/nmsg);
+        if (block_len >= 1024) block_len = 1024;
+        memcpy(block_data, data + 1024*i, block_len);
+        memset(block_data + block_len, 0, 1024 - block_len);
+        send_message(cl, PROTO_DATA, block_len, block_data, 100*(i+1)/nmsg);
     }
     free(data);
 
@@ -312,48 +325,85 @@ static void handle_player_HELO(Client *cl,
     info("client %d hailed with name `%s'", cl - g_clients, name);
 }
 
-static void on_block_update(int x, int y, int z, Type old_t, Type new_t)
+static void update_block(Level *level, int x, int y, int z, Type new_t,
+                         BlockUpdateQueue *buq)
 {
-    old_t = hook_client_block_type(old_t);
-    new_t = hook_client_block_type(new_t);
+    Type old_t = level_set_block(level, x, y, z, new_t);
     if (old_t != new_t)
-        broadcast_message(PROTO_MODN, x, y, z, new_t);
-}
-
-/* FIXME: risk of stack overflow here! */
-void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
-{
-    int d;
-    Type old_t = level_set_block(g_level, x, y, z, new_t);
-
-    if (old_t == new_t) return;
-
-    on_block_update(x, y, z, old_t, new_t);
-
-    for (d = 0; d < 6; ++d)
     {
-        int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
-        if (valid_index(g_level, nx, ny, nz))
+        /* Add to update queue, so neighbours will be notified in due time */
+        if (buq->len == buq->cap)
         {
-            Type t = level_get_block(level, nx, ny, nz);
-            int v = hook_on_neighbour_change( level, nx, ny, nz, t,
-                                              (d + 3)%6, old_t, new_t );
-            if (v >= 0) update_block_recursive(level, nx, ny, nz, v);
+            buq->overflow = true;
         }
+        else
+        {
+            BlockUpdate *bu = &buq->entries[(buq->pos + buq->len)%buq->cap];
+            bu->x       = x;
+            bu->y       = y;
+            bu->z       = z;
+            bu->old_t   = old_t;
+            bu->new_t   = new_t;
+            ++buq->len;
+        }
+
+        /* Convert to client block types and broadcast update if needed */
+        old_t = hook_client_block_type(old_t);
+        new_t = hook_client_block_type(new_t);
+        if (old_t != new_t)
+            broadcast_message(PROTO_MODN, x, y, z, new_t);
+
     }
 }
 
-    int hook_on_neighbour_change( Level *level, int x, int y, int z, Type t,
-                              int dir, Type old_t, Type new_t );
+void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
+{
+    BlockUpdateQueue buq;
+    buq.pos         = 0;
+    buq.len         = 0;
+    buq.cap         = sizeof(buq.entries)/sizeof(*buq.entries);
+    buq.overflow    = false;
+
+    update_block(level, x, y, z, new_t, &buq);
+
+    while (buq.len > 0)
+    {
+        int d;
+        Type old_t;
+
+        /* Take next update from the queue */
+        x     = buq.entries[buq.pos].x;
+        y     = buq.entries[buq.pos].y;
+        z     = buq.entries[buq.pos].z;
+        old_t = buq.entries[buq.pos].old_t;
+        new_t = buq.entries[buq.pos].new_t;
+        if (++buq.pos == buq.cap) buq.pos = 0;
+        --buq.len;
+
+        /* Notify neighbours of update */
+        for (d = 0; d < 6; ++d)
+        {
+            int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
+            if (level_index_valid(g_level, nx, ny, nz))
+            {
+                Type t = level_get_block(level, nx, ny, nz);
+                int v = hook_on_neighbour_change( level, nx, ny, nz, t,
+                                                  (d + 3)%6, old_t, new_t );
+                if (v >= 0) update_block(level, nx, ny, nz, v, &buq);
+            }
+        }
+    }
+
+    if (buq.overflow) error("block update queue overflowed!");
+}
 
 static void handle_player_MODR(Client *cl,
     Short x, Short y, Short z, Byte action, Byte type)
 {
-    if (x >= 0 && x < g_level->size.x &&
-        y >= 0 && y < g_level->size.y &&
-        z >= 0 && z < g_level->size.z && (action == 0 || action == 1))
+    if (level_index_valid(g_level, x, y, z) && (action == 0 || action == 1))
     {
-        int v = hook_authorize_update(g_level, x, y, z, action ? type : 0);
+        Type t = level_get_block(g_level, x, y, z);
+        int v = hook_authorize_update(g_level, x, y, z, t, action ? type : 0);
         if (v >= 0) update_block_recursive(g_level, x, y, z, v);
     }
 }
@@ -585,7 +635,7 @@ static void transmit_pending_messages(struct timeval *time_left)
 
                 if (nwritten < 0)
                 {
-                    error("write to client %d failed\n", cl - g_clients);
+                    warn("write to client %d failed\n", cl - g_clients);
                     nwritten = 0;
                 }
 

@@ -11,3 +11,4 @@ clean:
 	rm -f $(OBJS)
 
 distclean: clean
+	rm -f common.a

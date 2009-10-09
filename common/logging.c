@@ -1,6 +1,7 @@
 #include "logging.h"
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static void write_log(const char *prefix, const char *fmt, va_list ap)
 {

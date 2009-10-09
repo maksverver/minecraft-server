@@ -10,7 +10,7 @@ const const int DX[6] = { -1,  0,  0, +1,  0,  0 };
 const const int DY[6] = {  0, -1,  0,  0, +1,  0 };
 const const int DZ[6] = {  0,  0, -1,  0,  0, +1 };
 
-bool valid_index(const Level *level, int x, int y, int z)
+bool level_index_valid(const Level *level, int x, int y, int z)
 {
     return (unsigned)x < level->size.x &&
            (unsigned)y < level->size.y &&
@@ -126,14 +126,14 @@ failure:
 
 Type level_get_block(const Level *level, int x, int y, int z)
 {
-    if (!valid_index(level, x, y, z)) return 0;
+    if (!level_index_valid(level, x, y, z)) return 0;
     return level->blocks[idx(level, x, y, z)];
 }
 
 Type level_set_block(Level *level, int x, int y, int z, Type new_t /* ,
                      block_update_cb *on_update */ )
 {
-    if (!valid_index(level, x, y, z))
+    if (!level_index_valid(level, x, y, z))
     {
         warn("invalid level index %d,%d,%d", x, y, z);
         return new_t;
