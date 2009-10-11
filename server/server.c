@@ -1,8 +1,11 @@
+#include "events.h"
 #include "hooks.h"
 #include "level.h"
 #include "common/gzip.h"
+#include "common/heap.h"
 #include "common/logging.h"
 #include "common/protocol.h"
+#include "common/timeval.h"
 #include <assert.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -19,11 +22,12 @@
 #include <sys/types.h>
 #include <sys/time.h>
 
-#define MAX_CLIENTS        32
-#define FRAME_USEC     250000   /* microseconds */
-#define SAVE_INTERVAL      30   /* seconds */
+#define MAX_CLIENTS           32
+#define FRAME_USEC        250000    /* microseconds */
+#define SAVE_INTERVAL         30    /* seconds */
 
 #define MIN_BUFFER_SIZE  4000
+
 
 typedef struct Buffer
 {
@@ -45,19 +49,6 @@ typedef struct Client
     Player pl;          /* player state */
 
 } Client;
-
-typedef struct BlockUpdate {
-    Byte x, y, z;
-    Type old_t, new_t;
-} BlockUpdate;
-
-typedef struct BlockUpdateQueue
-{
-    BlockUpdate entries[1<<20];
-    int         pos, len, cap;
-    bool        overflow;
-} BlockUpdateQueue;
-
 
 
 static Level    *g_level;                   /* loaded level */
@@ -325,6 +316,7 @@ static void handle_player_HELO(Client *cl,
     info("client %d hailed with name `%s'", cl - g_clients, name);
 }
 
+#if 0
 static void update_block(Level *level, int x, int y, int z, Type new_t,
                          BlockUpdateQueue *buq)
 {
@@ -355,7 +347,6 @@ static void update_block(Level *level, int x, int y, int z, Type new_t,
 
     }
 }
-
 void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
 {
     BlockUpdateQueue buq;
@@ -396,6 +387,45 @@ void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
 
     if (buq.overflow) error("block update queue overflowed!");
 }
+#endif
+
+void server_update_block( int x, int y, int z, Type new_t,
+                         struct timeval *event_delay )
+{
+    /* Try to update level: */
+    Type old_t = level_set_block(g_level, x, y, z, new_t);
+    if (old_t != new_t)
+    {
+        Type cl_old_t = hook_client_block_type(old_t);
+        Type cl_new_t = hook_client_block_type(new_t);
+
+        /* Notify clients of update: */
+        if (cl_old_t != cl_new_t)
+            broadcast_message(PROTO_MODN, x, y, z, cl_new_t);
+
+        /* Handle implicit update event: */
+        if (event_delay != NULL)
+        {
+            Event ev;
+            tv_now(&ev.base.time);
+            ev.base.type = EVENT_TYPE_UPDATE;
+            ev.update_event.x     = x;
+            ev.update_event.y     = y;
+            ev.update_event.z     = z;
+            ev.update_event.old_t = old_t;
+            ev.update_event.new_t = new_t;
+            if (event_delay->tv_sec == 0 && event_delay->tv_usec == 0)
+            {
+                hook_on_event(g_level, &ev);
+            }
+            else
+            {
+                tv_add_tv(&ev.base.time, event_delay);
+                event_push(&ev);
+            }
+        }
+    }
+}
 
 static void handle_player_MODR(Client *cl,
     Short x, Short y, Short z, Byte action, Byte type)
@@ -404,7 +434,11 @@ static void handle_player_MODR(Client *cl,
     {
         Type t = level_get_block(g_level, x, y, z);
         int v = hook_authorize_update(g_level, x, y, z, t, action ? type : 0);
-        if (v >= 0) update_block_recursive(g_level, x, y, z, v);
+        if (v >= 0)
+        {
+            struct timeval delay = { 0, 0 };
+            server_update_block(x, y, z, v, &delay);
+        }
     }
 }
 
@@ -508,15 +542,12 @@ static int parse_data(Client *cl, Byte *buf, int len)
     return len;
 }
 
-static void server_frame()
+static void server_tick()
 {
     int c, d;
 
     /* Simulate a frame */
     level_tick(g_level);
-
-    /* Save level every SAVE_INTERVAL seconds */
-    if (g_level->save_time < time(NULL) - SAVE_INTERVAL) save_if_dirty();
 
     /* Send player position updates */
     for (c = 0; c < MAX_CLIENTS; ++c)
@@ -534,7 +565,6 @@ static void server_frame()
     }
 
     broadcast_message(PROTO_TICK);
-    printf("%s\n", (g_level->tick_count%2) ? "*tick*" : "\t*tock*");
 }
 
 static void transmit_pending_messages(struct timeval *time_left)
@@ -656,7 +686,7 @@ static void transmit_pending_messages(struct timeval *time_left)
     }
 }
 
-static void wait_for_next_frame(const struct timeval *end)
+static void wait_for_next_event(const struct timeval *end)
 {
     for (;;)
     {
@@ -677,14 +707,66 @@ static void wait_for_next_frame(const struct timeval *end)
 
 static void run_server()
 {
+    Event event;
+
+    /* Schedule initial tick event */
+    tv_now(&event.base.time);
+    tv_add_us(&event.base.time, FRAME_USEC);
+    event.base.type = EVENT_TYPE_TICK;
+    event_push(&event);
+
+    /* Schedule initial save event */
+    tv_now(&event.base.time);
+    tv_add_s(&event.base.time, SAVE_INTERVAL);
+    event.base.type = EVENT_TYPE_SAVE;
+    event_push(&event);
+
+    /* Run indefinitely */
     for (;;)
     {
-        struct timeval end;
-        gettimeofday(&end, NULL);
-        end.tv_sec += (end.tv_usec + FRAME_USEC)/1000000;
-        end.tv_usec = (end.tv_usec + FRAME_USEC)%1000000;
-        server_frame();
-        wait_for_next_frame(&end);
+        Event ev;
+
+        wait_for_next_event(&event_peek()->base.time);
+        event_pop(&ev);
+
+        switch (ev.base.type)
+        {
+        case EVENT_TYPE_TICK:
+            {
+                struct timeval now;
+
+                /* Execute tick */
+                server_tick();
+
+                printf("%s\n", (g_level->tick_count%2) ? "*tick*" : "\t*tock*");
+
+                /* Schedule next tick event */
+                tv_now(&now);
+                tv_add_us(&ev.base.time, FRAME_USEC);
+                if (tv_cmp(&ev.base.time, &now) < 0)
+                {
+                    struct timeval d = now;
+                    tv_sub_tv(&d, &ev.base.time);
+                    warn("tick delayed by %d.%06ds", d.tv_sec, d.tv_usec);
+                    ev.base.time = now;
+                }
+                event_push(&ev);
+            }
+            break;
+
+        case EVENT_TYPE_SAVE:
+            save_if_dirty();
+
+            /* Schedule next save event */
+            tv_now(&ev.base.time);
+            tv_add_s(&ev.base.time, SAVE_INTERVAL);
+            event_push(&ev);
+            break;
+
+        default: break;
+        }
+
+        hook_on_event(g_level, &ev);
     }
 }
 
