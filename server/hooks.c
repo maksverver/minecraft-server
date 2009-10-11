@@ -132,7 +132,7 @@ static void on_update(const Level *level, UpdateEvent *ev)
                 {
                     for (z = z1; z < z2; ++z)
                     {
-                        if (x != ev->x || y != ev->y || z != ev->z)
+                        if (is_fluid(level_get_block(level, x, y, z)))
                             update_block(x, y, z, EMPTY);
                     }
                 }
