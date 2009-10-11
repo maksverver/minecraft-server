@@ -1,0 +1,3 @@
+server:
+ - send old block type notification back to client when update request is denied
+   (otherwise, the client thinks the block is updated)

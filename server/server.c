@@ -316,79 +316,6 @@ static void handle_player_HELO(Client *cl,
     info("client %d hailed with name `%s'", cl - g_clients, name);
 }
 
-#if 0
-static void update_block(Level *level, int x, int y, int z, Type new_t,
-                         BlockUpdateQueue *buq)
-{
-    Type old_t = level_set_block(level, x, y, z, new_t);
-    if (old_t != new_t)
-    {
-        /* Add to update queue, so neighbours will be notified in due time */
-        if (buq->len == buq->cap)
-        {
-            buq->overflow = true;
-        }
-        else
-        {
-            BlockUpdate *bu = &buq->entries[(buq->pos + buq->len)%buq->cap];
-            bu->x       = x;
-            bu->y       = y;
-            bu->z       = z;
-            bu->old_t   = old_t;
-            bu->new_t   = new_t;
-            ++buq->len;
-        }
-
-        /* Convert to client block types and broadcast update if needed */
-        old_t = hook_client_block_type(old_t);
-        new_t = hook_client_block_type(new_t);
-        if (old_t != new_t)
-            broadcast_message(PROTO_MODN, x, y, z, new_t);
-
-    }
-}
-void update_block_recursive(Level *level, int x, int y, int z, Type new_t)
-{
-    BlockUpdateQueue buq;
-    buq.pos         = 0;
-    buq.len         = 0;
-    buq.cap         = sizeof(buq.entries)/sizeof(*buq.entries);
-    buq.overflow    = false;
-
-    update_block(level, x, y, z, new_t, &buq);
-
-    while (buq.len > 0)
-    {
-        int d;
-        Type old_t;
-
-        /* Take next update from the queue */
-        x     = buq.entries[buq.pos].x;
-        y     = buq.entries[buq.pos].y;
-        z     = buq.entries[buq.pos].z;
-        old_t = buq.entries[buq.pos].old_t;
-        new_t = buq.entries[buq.pos].new_t;
-        if (++buq.pos == buq.cap) buq.pos = 0;
-        --buq.len;
-
-        /* Notify neighbours of update */
-        for (d = 0; d < 6; ++d)
-        {
-            int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
-            if (level_index_valid(g_level, nx, ny, nz))
-            {
-                Type t = level_get_block(level, nx, ny, nz);
-                int v = hook_on_neighbour_change( level, nx, ny, nz, t,
-                                                  (d + 3)%6, old_t, new_t );
-                if (v >= 0) update_block(level, nx, ny, nz, v, &buq);
-            }
-        }
-    }
-
-    if (buq.overflow) error("block update queue overflowed!");
-}
-#endif
-
 void server_update_block( int x, int y, int z, Type new_t,
                          struct timeval *event_delay )
 {
@@ -452,7 +379,7 @@ static void handle_player_PLYU(Client *cl,
 {
     (void)player;  /* unused */
     cl->pl.pos.x = clip(x/32.0f, 0.0f, g_level->size.x);
-    cl->pl.pos.y = clip(y/32.0f, 0.0f, g_level->size.y);
+    cl->pl.pos.y = g_level->size.y;  /* don't clip height */
     cl->pl.pos.z = clip(z/32.0f, 0.0f, g_level->size.z);
     cl->pl.yaw   = clip(yaw/255.0f, 0.0f, 1.0f);
     cl->pl.pitch = clip(((signed char)pitch)/64.0f, -1.0f, 1.0f);

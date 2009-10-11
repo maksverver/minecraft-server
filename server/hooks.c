@@ -71,7 +71,11 @@ static void update_block(int x, int y, int z, Type new_t)
 int hook_authorize_update( const Level *level, int x, int y, int z,
                            Type old_t, Type new_t )
 {
+    /* FIXME: better check for client-buildable block types here */
     if (new_t > 40 || is_fluid(new_t)) return -1;
+
+    /* Can't build something in a space that's not empty: */
+    if (old_t != EMPTY && new_t != EMPTY) return -1;
 
     if (new_t == EMPTY && !type_nearby(level, x, y, z, SPONGE, 3))
     {
@@ -236,4 +240,8 @@ void hook_on_event(const Level *level, Event *ev)
     }
 }
 
-/* TODO: grow tree trunk/leaves, but only if trunk is planted on dirt :=) */
+/* TODO:
+    grow tree trunk/leaves, but only if trunk is planted on dirt :=)
+
+    lava/water combine to form rock
+*/
