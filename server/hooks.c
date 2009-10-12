@@ -102,6 +102,9 @@ static bool is_player_deletable(Type t)
     switch (t)
     {
     case GRASS:
+    case ORE1:
+    case ORE2:
+    case ORE3:
         return true;
 
     default:
