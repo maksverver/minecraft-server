@@ -366,6 +366,12 @@ static void handle_player_MODR(Client *cl,
             struct timeval delay = { 0, 0 };
             server_update_block(x, y, z, v, &delay);
         }
+        else  /* authorization denied */
+        {
+            /* Client has already deleted the block; send a modification
+               notification to put it back! */
+            broadcast_message(PROTO_MODN, x, y, z, hook_client_block_type(t));
+        }
     }
 }
 
