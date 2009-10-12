@@ -173,6 +173,14 @@ static void update_block(int x, int y, int z, Type new_t)
     server_update_block(x, y, z, new_t, &delay);
 }
 
+static void update_block_delayed(int x, int y, int z, Type new_t, int s, int us)
+{
+    void server_update_block( int x, int y, int z, Type new_t,
+                              struct timeval *event_delay );
+
+    struct timeval delay = { s, us };
+    server_update_block(x, y, z, new_t, &delay);
+}
 
 int hook_authorize_update( const Level *level, int x, int y, int z,
                            Type old_t, Type new_t )
@@ -248,6 +256,8 @@ static void on_update(const Level *level, UpdateEvent *ev)
     {
     case SPONGE:
         {
+#if 1
+            /* Normal sponge */
             int x1 = max(ev->x - 3 + 1, 0), x2 = min(ev->x + 3, level->size.x);
             int y1 = max(ev->y - 3 + 1, 0), y2 = min(ev->y + 3, level->size.y);
             int z1 = max(ev->z - 3 + 1, 0), z2 = min(ev->z + 3, level->size.z);
@@ -264,6 +274,22 @@ static void on_update(const Level *level, UpdateEvent *ev)
                     }
                 }
             }
+#else
+            /* Flood-filling super sponge */
+            int d;
+            for (d = 0; d < 6; ++d)
+            {
+                int nx = ev->x + DX[d];
+                int ny = ev->y + DY[d];
+                int nz = ev->z + DZ[d];
+                Type t = level_get_block(level, nx, ny,nz);
+                if (is_fluid(t))
+                {
+                    update_block_delayed(nx, ny, nz, SPONGE, 1, 0);
+                }
+            }
+            update_block(ev->x, ev->y, ev->z, EMPTY);
+#endif
         }
         break;
 
