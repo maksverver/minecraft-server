@@ -99,7 +99,14 @@ static bool is_player_placeable(Type t)
 
 static bool is_player_deletable(Type t)
 {
-    return is_player_placeable(t);
+    switch (t)
+    {
+    case GRASS:
+        return true;
+
+    default:
+        return is_player_placeable(t);
+    }
 }
 
 static bool is_player_replacable(Type t)
