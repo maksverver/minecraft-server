@@ -3,14 +3,47 @@
 #include "common/timeval.h"
 
 #define EMPTY          0
-#define STANDARD       1
+#define STONE_GREY     1
 #define GRASS          2
 #define DIRT           3
-#define FLUID1         8
-#define FLUID2         9
-#define FLUID3        10
-#define FLUID4        11
+#define ROCK           4
+#define WOOD           5
+#define SAPLING        6
+#define ADMINIUM       7
+#define WATER1         8
+#define WATER2         9
+#define LAVA1         10
+#define LAVA2         11
+#define STONE_YELLOW  12
+#define STONE_MIXED   13
+#define ORE1          14
+#define ORE2          15
+#define ORE3          16
+#define TRUNK         17
+#define LEAVES        18
 #define SPONGE        19
+#define GLASS         20
+#define COLORED1      21
+#define COLORED2      22
+#define COLORED3      23
+#define COLORED4      24
+#define COLORED5      25
+#define COLORED6      26
+#define COLORED7      27
+#define COLORED8      28
+#define COLORED9      29
+#define COLORED10     30
+#define COLORED11     31
+#define COLORED12     32
+#define COLORED13     33
+#define COLORED14     34
+#define COLORED15     35
+#define COLORED16     36
+#define FLOWER_YELLOW 37
+#define FLOWER_RED    38
+#define MUSHROOM      39
+#define TOADSTOOL     40
+#define GOLD          41
 
 #define FLOW_DELAY_USEC         300000  /* 300ms */
 
@@ -19,7 +52,70 @@
 
 static int min(int i, int j) { return i < j ? i : j; }
 static int max(int i, int j) { return i > j ? i : j; }
-static bool is_fluid(Type t) { return t >= 8 && t <= 11; }
+static bool is_fluid(Type t) { return t >= WATER1 && t <= LAVA2; }
+
+static bool is_player_placeable(Type t)
+{
+    switch (t)
+    {
+    case STONE_GREY:
+    case DIRT:
+    case ROCK:
+    case WOOD:
+    case SAPLING:
+    case STONE_YELLOW:
+    case STONE_MIXED:
+    case TRUNK:
+    case LEAVES:
+    case SPONGE:
+    case GLASS:
+    case COLORED1:
+    case COLORED2:
+    case COLORED3:
+    case COLORED4:
+    case COLORED5:
+    case COLORED6:
+    case COLORED7:
+    case COLORED8:
+    case COLORED9:
+    case COLORED10:
+    case COLORED11:
+    case COLORED12:
+    case COLORED13:
+    case COLORED14:
+    case COLORED15:
+    case COLORED16:
+    case FLOWER_YELLOW:
+    case FLOWER_RED:
+    case MUSHROOM:
+    case TOADSTOOL:
+    case GOLD:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+static bool is_player_deletable(Type t)
+{
+    return is_player_placeable(t);
+}
+
+static bool is_player_replacable(Type t)
+{
+    switch (t)
+    {
+    case WATER1:
+    case WATER2:
+    case LAVA1:
+    case LAVA2:
+        return true;
+
+    default:
+        return false;
+    }
+}
 
 /* Returns whether the cube with sides of length 2*`d' - 1 centered around
    (x,y,z) contains a block of type `t'. */
@@ -71,18 +167,35 @@ static void update_block(int x, int y, int z, Type new_t)
 int hook_authorize_update( const Level *level, int x, int y, int z,
                            Type old_t, Type new_t )
 {
-    /* FIXME: better check for client-buildable block types here */
-    if (new_t > 40 || is_fluid(new_t)) return -1;
+    /* NB. new_t is a client block type at this point! */
 
-    /* Can't build something in a space that's not empty: */
-    if (old_t != EMPTY && new_t != EMPTY) return -1;
+    /* Reject update if it doesn't change anything: */
+    if (old_t == new_t) return -1;
+
+    if (old_t != EMPTY && new_t != EMPTY)
+    {
+        /* replacing a block: */
+        if (!is_player_replacable(old_t)) return -1;
+    }
+    else
+    if (old_t != EMPTY) /* new_t == EMPTY */
+    {
+        /* deleting a block: */
+        if (!is_player_deletable(old_t)) return -1;
+    }
+    else
+    if (new_t != EMPTY) /* old_t == EMPTY */
+    {
+        /* placing a block: */
+        if (!is_player_placeable(new_t)) return -1;
+    }
 
     if (new_t == EMPTY && !type_nearby(level, x, y, z, SPONGE, 3))
     {
         new_t = adjacent_fluid(level, x, y, z);
     }
 
-    info("User placed block of type %d at (%d,%d,%d)\n", (int)new_t, x, y, z);
+    info("User placing block of type %d at (%d,%d,%d)\n", (int)new_t, x, y, z);
 
     return new_t;
 }
@@ -144,10 +257,10 @@ static void on_update(const Level *level, UpdateEvent *ev)
         }
         break;
 
-    case FLUID1:
-    case FLUID2:
-    case FLUID3:
-    case FLUID4:
+    case WATER1:
+    case WATER2:
+    case LAVA1:
+    case LAVA2:
         {
             post_flow_event(ev->x, ev->y, ev->z);
         } break;
