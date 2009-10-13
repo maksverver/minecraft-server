@@ -1,3 +1,6 @@
 server:
 - sponge should not work against lava (supersponge does!)
 - should save/restore event queue as well as world
+
+protocol:
+- make client understand when it gets admin powers (so adminium can be deleted)

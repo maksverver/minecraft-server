@@ -122,21 +122,6 @@ static bool type_nearby(const Level *level, int x, int y, int z, Type t, int d)
     return false;
 }
 
-/* Returns a type of fluid adjacent to (but not below) x/y/z or 0. */
-static int adjacent_fluid(const Level *level, int x, int y, int z)
-{
-    Type t;
-    int d;
-
-    for (d = 0; d < 6; ++d)
-    {
-        if (DY[d] < 0) continue;  /* below doesn't count */
-        t = level_get_block(level, x + DX[d], y + DY[d], z + DZ[d]);
-        if (is_fluid(t)) return t;
-    }
-    return 0;
-}
-
 static void update_block_delayed( int x, int y, int z, Type new_t,
                                   const struct timeval *delay )
 {
@@ -196,11 +181,6 @@ int hook_authorize_update( const Level *level, const Player *player,
         if (!is_player_placeable(new_t, player->admin)) return -1;
     }
 
-    if (new_t == BLOCK_EMPTY && !type_nearby(level, x, y, z, BLOCK_SPONGE, 3))
-    {
-        new_t = adjacent_fluid(level, x, y, z);
-    }
-
     info("User placing block of type %d at (%d,%d,%d)\n", (int)new_t, x, y, z);
 
     return new_t;
@@ -221,6 +201,23 @@ static void post_flow_event(int x, int y, int z, const struct timeval *delay)
     new_ev.flow_event.y = y;
     new_ev.flow_event.z = z;
     event_push(&new_ev);
+}
+
+/* Queues a flow event if the block at x/y/z is fluid. */
+static void try_to_flow(const Level *level, int x, int y, int z)
+{
+    switch (level_get_block(level, x, y, z))
+    {
+    case BLOCK_WATER1:
+    case BLOCK_WATER2:
+        post_flow_event(x, y, z, &water_flow_delay);
+        break;
+
+    case BLOCK_LAVA1:
+    case BLOCK_LAVA2:
+        post_flow_event(x, y, z, &lava_flow_delay);
+        break;
+    }
 }
 
 static void post_grow_event(int x, int y, int z)
@@ -285,20 +282,17 @@ static void on_update(const Level *level, UpdateEvent *ev)
 
     case BLOCK_WATER1:
     case BLOCK_WATER2:
-        post_flow_event(ev->x, ev->y, ev->z, &water_flow_delay);
-        break;
-
     case BLOCK_LAVA1:
     case BLOCK_LAVA2:
-        post_flow_event(ev->x, ev->y, ev->z, &lava_flow_delay);
+        try_to_flow(level, ev->x, ev->y, ev->z);
         break;
 
     case BLOCK_EMPTY:
-        if (ev->old_t == BLOCK_SPONGE)
         {
-            int x1 = max(ev->x - 4 + 1, 0), x2 = min(ev->x + 4, level->size.x);
-            int y1 = max(ev->y - 4 + 1, 0), y2 = min(ev->y + 4, level->size.y);
-            int z1 = max(ev->z - 4 + 1, 0), z2 = min(ev->z + 4, level->size.z);
+            int d = (ev->old_t == BLOCK_SPONGE) ? 3 : 1;
+            int x1 = max(ev->x - d, 0), x2 = min(ev->x + d + 1, level->size.x);
+            int y1 = max(ev->y - d, 0), y2 = min(ev->y + d + 1, level->size.y);
+            int z1 = max(ev->z - d, 0), z2 = min(ev->z + d + 1, level->size.z);
             int x, y, z;
 
             for (x = x1; x < x2; ++x)
@@ -307,25 +301,12 @@ static void on_update(const Level *level, UpdateEvent *ev)
                 {
                     for (z = z1; z < z2; ++z)
                     {
-                        if (x != ev->x || y != ev->y || z != ev->z)
-                        {
-                            switch (level_get_block(level, x, y, z))
-                            {
-                            case BLOCK_WATER1:
-                            case BLOCK_WATER2:
-                                post_flow_event(x, y, z, &water_flow_delay);
-                                break;
-
-                            case BLOCK_LAVA1:
-                            case BLOCK_LAVA2:
-                                post_flow_event(x, y, z, &water_flow_delay);
-                                break;
-                            }
-                        }
+                        try_to_flow(level, x, y, z);
                     }
                 }
             }
-        } break;
+        }
+        break;
 
     case BLOCK_DIRT:
         post_grow_event(ev->x, ev->y, ev->z);
