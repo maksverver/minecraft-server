@@ -1,8 +1,8 @@
 #include "events.h"
 #include "hooks.h"
-#include "level.h"
 #include "common/gzip.h"
 #include "common/heap.h"
+#include "common/level.h"
 #include "common/logging.h"
 #include "common/protocol.h"
 #include "common/timeval.h"
@@ -291,11 +291,13 @@ static void handle_player_HELO(Client *cl,
 
     strcpy(cl->pl.name, name);
 
-    cl->pl.pos.x  = g_level->spawn.x;
-    cl->pl.pos.y  = g_level->spawn.y;
-    cl->pl.pos.z  = g_level->spawn.z;
-    cl->pl.yaw    = g_level->rot_spawn;
-    cl->pl.pitch  = 0.0f;
+    cl->pl.pos.x    = g_level->spawn.x;
+    cl->pl.pos.y    = g_level->spawn.y;
+    cl->pl.pos.z    = g_level->spawn.z;
+    cl->pl.yaw      = g_level->rot_spawn;
+    cl->pl.pitch    = 0.0f;
+    cl->pl.tileset  = 0;
+    cl->pl.admin    = false;
 
     send_message(cl, PROTO_HELO, b0, g_level->name, g_level->creator, b1);
     send_message(cl, PROTO_STRT);
@@ -316,9 +318,11 @@ static void handle_player_HELO(Client *cl,
     info("client %d hailed with name `%s'", cl - g_clients, name);
 }
 
-void server_update_block( int x, int y, int z, Type new_t,
-                         struct timeval *event_delay )
+bool server_update_block( int x, int y, int z, Type new_t,
+                          struct timeval *event_delay )
 {
+    bool res = false;  /* have clients been notified? */
+
     /* Try to update level: */
     Type old_t = level_set_block(g_level, x, y, z, new_t);
     if (old_t != new_t)
@@ -328,7 +332,10 @@ void server_update_block( int x, int y, int z, Type new_t,
 
         /* Notify clients of update: */
         if (cl_old_t != cl_new_t)
+        {
             broadcast_message(PROTO_MODN, x, y, z, cl_new_t);
+            res = true;
+        }
 
         /* Handle implicit update event: */
         if (event_delay != NULL)
@@ -352,6 +359,8 @@ void server_update_block( int x, int y, int z, Type new_t,
             }
         }
     }
+
+    return res;
 }
 
 static void handle_player_MODR(Client *cl,
@@ -359,17 +368,14 @@ static void handle_player_MODR(Client *cl,
 {
     if (level_index_valid(g_level, x, y, z) && (action == 0 || action == 1))
     {
+        struct timeval delay = { 0, 0 };
         Type t = level_get_block(g_level, x, y, z);
-        int v = hook_authorize_update(g_level, x, y, z, t, action ? type : 0);
-        if (v >= 0)
+        int v = hook_authorize_update(g_level, &cl->pl,
+                                      x, y, z, t, action ? type : 0);
+        if (v < 0 || !server_update_block(x, y, z, v, &delay))
         {
-            struct timeval delay = { 0, 0 };
-            server_update_block(x, y, z, v, &delay);
-        }
-        else  /* authorization denied */
-        {
-            /* Client has already deleted the block; send a modification
-               notification to put it back! */
+            /* Client may have updated the block locally, so send a notification
+               to put the correct type back: */
             broadcast_message(PROTO_MODN, x, y, z, hook_client_block_type(t));
         }
     }
@@ -394,10 +400,16 @@ static void handle_player_PLYU(Client *cl,
 static void handle_player_CHAT(Client *cl, Byte player, char *message)
 {
     char buf[STRING_LEN + 1];
+
     (void)player;  /* ignored */
 
-    snprintf(buf, sizeof(buf), "%s: %s", cl->pl.name, message);
-    broadcast_message(PROTO_CHAT, cl - g_clients, buf);
+    switch (hook_on_chat(&cl->pl, message, buf, sizeof(buf)))
+    {
+        case 0: break;
+        case 1: send_message(cl, PROTO_CHAT, -1, buf); break;
+        case 2: broadcast_message(PROTO_CHAT, cl - g_clients, buf); break;
+        default: assert(0);
+    }
 }
 
 static int parse_data(Client *cl, Byte *buf, int len)

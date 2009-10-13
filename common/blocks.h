@@ -44,4 +44,8 @@
 #define BLOCK_TOADSTOOL     40
 #define BLOCK_GOLD          41
 
+/* Custom types: */
+#define BLOCK_SUPER         64
+#define BLOCK_SUPERSPONGE   (19|BLOCK_SUPER)
+
 #endif /* ndef BLOCKS_H_INCLUDED */

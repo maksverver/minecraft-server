@@ -1,6 +1,6 @@
 include ../base.mk
 
-OBJS=gzip.o logging.o protocol.o hexdump.o heap.o timeval.o
+OBJS=gzip.o heap.o hexdump.o level.o logging.o protocol.o timeval.o
 
 all: common.a
 

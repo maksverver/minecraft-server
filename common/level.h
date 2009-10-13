@@ -48,6 +48,9 @@ typedef struct Player
     char name[STRING_LEN + 1];
     Vec3f pos;
     float yaw, pitch;
+
+    bool admin;
+    Byte tileset;
 } Player;
 
 /*

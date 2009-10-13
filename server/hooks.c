@@ -1,49 +1,8 @@
 #include "hooks.h"
 #include "common/logging.h"
 #include "common/timeval.h"
-
-#define EMPTY          0
-#define STONE_GREY     1
-#define GRASS          2
-#define DIRT           3
-#define ROCK           4
-#define WOOD           5
-#define SAPLING        6
-#define ADMINIUM       7
-#define WATER1         8
-#define WATER2         9
-#define LAVA1         10
-#define LAVA2         11
-#define STONE_YELLOW  12
-#define STONE_MIXED   13
-#define ORE1          14
-#define ORE2          15
-#define ORE3          16
-#define TRUNK         17
-#define LEAVES        18
-#define SPONGE        19
-#define GLASS         20
-#define COLORED1      21
-#define COLORED2      22
-#define COLORED3      23
-#define COLORED4      24
-#define COLORED5      25
-#define COLORED6      26
-#define COLORED7      27
-#define COLORED8      28
-#define COLORED9      29
-#define COLORED10     30
-#define COLORED11     31
-#define COLORED12     32
-#define COLORED13     33
-#define COLORED14     34
-#define COLORED15     35
-#define COLORED16     36
-#define FLOWER_YELLOW 37
-#define FLOWER_RED    38
-#define MUSHROOM      39
-#define TOADSTOOL     40
-#define GOLD          41
+#include <stdio.h>
+#include <string.h>
 
 #define FLOW_DELAY_USEC         300000  /* 300ms */
 
@@ -52,44 +11,44 @@
 
 static int min(int i, int j) { return i < j ? i : j; }
 static int max(int i, int j) { return i > j ? i : j; }
-static bool is_fluid(Type t) { return t >= WATER1 && t <= LAVA2; }
+static bool is_fluid(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_LAVA2; }
 
 static bool is_player_placeable(Type t)
 {
     switch (t)
     {
-    case STONE_GREY:
-    case DIRT:
-    case ROCK:
-    case WOOD:
-    case SAPLING:
-    case STONE_YELLOW:
-    case STONE_MIXED:
-    case TRUNK:
-    case LEAVES:
-    case SPONGE:
-    case GLASS:
-    case COLORED1:
-    case COLORED2:
-    case COLORED3:
-    case COLORED4:
-    case COLORED5:
-    case COLORED6:
-    case COLORED7:
-    case COLORED8:
-    case COLORED9:
-    case COLORED10:
-    case COLORED11:
-    case COLORED12:
-    case COLORED13:
-    case COLORED14:
-    case COLORED15:
-    case COLORED16:
-    case FLOWER_YELLOW:
-    case FLOWER_RED:
-    case MUSHROOM:
-    case TOADSTOOL:
-    case GOLD:
+    case BLOCK_STONE_GREY:
+    case BLOCK_DIRT:
+    case BLOCK_ROCK:
+    case BLOCK_WOOD:
+    case BLOCK_SAPLING:
+    case BLOCK_STONE_YELLOW:
+    case BLOCK_STONE_MIXED:
+    case BLOCK_TRUNK:
+    case BLOCK_LEAVES:
+    case BLOCK_SPONGE:
+    case BLOCK_GLASS:
+    case BLOCK_COLORED1:
+    case BLOCK_COLORED2:
+    case BLOCK_COLORED3:
+    case BLOCK_COLORED4:
+    case BLOCK_COLORED5:
+    case BLOCK_COLORED6:
+    case BLOCK_COLORED7:
+    case BLOCK_COLORED8:
+    case BLOCK_COLORED9:
+    case BLOCK_COLORED10:
+    case BLOCK_COLORED11:
+    case BLOCK_COLORED12:
+    case BLOCK_COLORED13:
+    case BLOCK_COLORED14:
+    case BLOCK_COLORED15:
+    case BLOCK_COLORED16:
+    case BLOCK_FLOWER_YELLOW:
+    case BLOCK_FLOWER_RED:
+    case BLOCK_MUSHROOM:
+    case BLOCK_TOADSTOOL:
+    case BLOCK_GOLD:
         return true;
 
     default:
@@ -101,10 +60,10 @@ static bool is_player_deletable(Type t)
 {
     switch (t)
     {
-    case GRASS:
-    case ORE1:
-    case ORE2:
-    case ORE3:
+    case BLOCK_GRASS:
+    case BLOCK_ORE1:
+    case BLOCK_ORE2:
+    case BLOCK_ORE3:
         return true;
 
     default:
@@ -116,10 +75,10 @@ static bool is_player_replacable(Type t)
 {
     switch (t)
     {
-    case WATER1:
-    case WATER2:
-    case LAVA1:
-    case LAVA2:
+    case BLOCK_WATER1:
+    case BLOCK_WATER2:
+    case BLOCK_LAVA1:
+    case BLOCK_LAVA2:
         return true;
 
     default:
@@ -174,33 +133,49 @@ static void update_block(int x, int y, int z, Type new_t)
 }
 
 
-int hook_authorize_update( const Level *level, int x, int y, int z,
-                           Type old_t, Type new_t )
+int hook_authorize_update( const Level *level, const Player *player,
+                           int x, int y, int z, Type old_t, Type new_t )
 {
     /* NB. new_t is a client block type at this point! */
 
     /* Reject update if it doesn't change anything: */
     if (old_t == new_t) return -1;
 
-    if (old_t != EMPTY && new_t != EMPTY)
+    /* Handle tileset mapping: */
+    switch (player->tileset)
     {
-        /* replacing a block: */
-        if (!is_player_replacable(old_t)) return -1;
+        case 1:
+            switch (new_t)
+            {
+            case BLOCK_COLORED1: new_t = BLOCK_LAVA2;       break;  /* red */
+            case BLOCK_COLORED3: new_t = BLOCK_SUPERSPONGE; break;  /* yellow */
+            case BLOCK_COLORED8: new_t = BLOCK_WATER2;      break;  /* blue */
+            }
+            break;
     }
-    else
-    if (old_t != EMPTY) /* new_t == EMPTY */
+info("admin=%d", (int)player->admin);
+    if (!player->admin)
     {
-        /* deleting a block: */
-        if (!is_player_deletable(old_t)) return -1;
-    }
-    else
-    if (new_t != EMPTY) /* old_t == EMPTY */
-    {
-        /* placing a block: */
-        if (!is_player_placeable(new_t)) return -1;
+        if (old_t != BLOCK_EMPTY && new_t != BLOCK_EMPTY)
+        {
+            /* replacing a block: */
+            if (is_player_replacable(old_t)) return -1;
+        }
+        else
+        if (old_t != BLOCK_EMPTY) /* new_t == BLOCK_EMPTY */
+        {
+            /* deleting a block: */
+            if (!is_player_deletable(old_t)) return -1;
+        }
+        else
+        if (new_t != BLOCK_EMPTY) /* old_t == BLOCK_EMPTY */
+        {
+            /* placing a block: */
+            if (!is_player_placeable(new_t)) return -1;
+        }
     }
 
-    if (new_t == EMPTY && !type_nearby(level, x, y, z, SPONGE, 3))
+    if (new_t == BLOCK_EMPTY && !type_nearby(level, x, y, z, BLOCK_SPONGE, 3))
     {
         new_t = adjacent_fluid(level, x, y, z);
     }
@@ -246,7 +221,7 @@ static void on_update(const Level *level, UpdateEvent *ev)
 
     switch (ev->new_t)
     {
-    case SPONGE:
+    case BLOCK_SPONGE:
         {
             int x1 = max(ev->x - 3 + 1, 0), x2 = min(ev->x + 3, level->size.x);
             int y1 = max(ev->y - 3 + 1, 0), y2 = min(ev->y + 3, level->size.y);
@@ -260,23 +235,23 @@ static void on_update(const Level *level, UpdateEvent *ev)
                     for (z = z1; z < z2; ++z)
                     {
                         if (is_fluid(level_get_block(level, x, y, z)))
-                            update_block(x, y, z, EMPTY);
+                            update_block(x, y, z, BLOCK_EMPTY);
                     }
                 }
             }
         }
         break;
 
-    case WATER1:
-    case WATER2:
-    case LAVA1:
-    case LAVA2:
+    case BLOCK_WATER1:
+    case BLOCK_WATER2:
+    case BLOCK_LAVA1:
+    case BLOCK_LAVA2:
         {
             post_flow_event(ev->x, ev->y, ev->z);
         } break;
 
-    case EMPTY:
-        if (ev->old_t == SPONGE)
+    case BLOCK_EMPTY:
+        if (ev->old_t == BLOCK_SPONGE)
         {
             int x1 = max(ev->x - 4 + 1, 0), x2 = min(ev->x + 4, level->size.x);
             int y1 = max(ev->y - 4 + 1, 0), y2 = min(ev->y + 4, level->size.y);
@@ -301,7 +276,7 @@ static void on_update(const Level *level, UpdateEvent *ev)
             }
         } break;
 
-    case DIRT:
+    case BLOCK_DIRT:
         post_grow_event(ev->x, ev->y, ev->z);
         break;
     }
@@ -324,22 +299,22 @@ static void on_flow(const Level *level, FlowEvent *ev)
         ny = ev->y + DY[d];
         nz = ev->z + DZ[d];
         if (level_index_valid(level, nx, ny, nz) &&
-            level_get_block(level, nx, ny, nz) == EMPTY &&
-            !type_nearby(level, nx, ny, nz, SPONGE, 3))
+            level_get_block(level, nx, ny, nz) == BLOCK_EMPTY &&
+            !type_nearby(level, nx, ny, nz, BLOCK_SPONGE, 3))
         {
             update_block(nx, ny, nz, t);
         }
     }
 }
 
-
 static void on_grow(const Level *level, GrowEvent *ev)
 {
     Type t = level_get_block(level, ev->x, ev->y, ev->z);
 
-    if (t == DIRT && level_get_block(level, ev->x, ev->y + 1, ev->z) == EMPTY)
+    if (t == BLOCK_DIRT &&
+        level_get_block(level, ev->x, ev->y + 1, ev->z) == BLOCK_EMPTY)
     {
-        update_block(ev->x, ev->y, ev->z, GRASS);
+        update_block(ev->x, ev->y, ev->z, BLOCK_GRASS);
     }
 }
 
@@ -368,3 +343,32 @@ void hook_on_event(const Level *level, Event *ev)
 
     lava/water combine to form rock
 */
+
+int hook_on_chat(Player *pl, const char *in, char *out, size_t out_size)
+{
+    char arg_s[33];
+    int arg_i;
+
+    if (sscanf(in, "/auth %32s", arg_s) == 1)
+    {
+        pl->admin = strcmp(arg_s, "fiets") == 0; /* FIXME */
+        snprintf(out, out_size, "access %s", pl->admin ? "granted" : "denied");
+        return 1;
+    }
+
+    if (sscanf(in, "/set tileset %d", &arg_i) == 1)
+    {
+        if (arg_i >= 0 && arg_i < 2) pl->tileset = arg_i;
+        return 0;
+    }
+
+    if (strcmp(in, "/set tileset") == 0)
+    {
+        snprintf(out, out_size, "current tileset: %d", pl->tileset);
+        return 1;
+    }
+
+    /* Normal chat message: */
+    snprintf(out, out_size, "%s: %s", pl->name, in);
+    return 2;
+}
