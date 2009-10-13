@@ -4,16 +4,20 @@
 #include <stdio.h>
 #include <string.h>
 
-#define FLOW_DELAY_USEC         300000  /* 300ms */
-
 #define GROW_DELAY_MIN_SEC       3
 #define GROW_DELAY_MAX_SEC      60
+
+const struct timeval
+    zero_delay        = { 0,      0 },
+    water_flow_delay  = { 0, 300000 }, /* 300ms */
+    lava_flow_delay   = { 3,      0 }, /* 3s */
+    supersponge_delay = { 0, 250000 }; /* 250ms */
 
 static int min(int i, int j) { return i < j ? i : j; }
 static int max(int i, int j) { return i > j ? i : j; }
 static bool is_fluid(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_LAVA2; }
 
-static bool is_player_placeable(Type t)
+static bool is_player_placeable(Type t, bool admin)
 {
     switch (t)
     {
@@ -51,12 +55,18 @@ static bool is_player_placeable(Type t)
     case BLOCK_GOLD:
         return true;
 
+    case BLOCK_SUPERSPONGE:
+    case BLOCK_LAVA2:
+    case BLOCK_WATER2:
+    case BLOCK_ADMINIUM:
+        return admin;
+
     default:
         return false;
     }
 }
 
-static bool is_player_deletable(Type t)
+static bool is_player_deletable(Type t, bool admin)
 {
     switch (t)
     {
@@ -67,12 +77,14 @@ static bool is_player_deletable(Type t)
         return true;
 
     default:
-        return is_player_placeable(t);
+        return is_player_placeable(t, admin);
     }
 }
 
-static bool is_player_replacable(Type t)
+static bool is_player_replacable(Type t, bool admin)
 {
+    (void)admin; /* unused */
+
     switch (t)
     {
     case BLOCK_WATER1:
@@ -123,22 +135,19 @@ static int adjacent_fluid(const Level *level, int x, int y, int z)
     return 0;
 }
 
-static void update_block(int x, int y, int z, Type new_t)
+static void update_block_delayed( int x, int y, int z, Type new_t,
+                                  const struct timeval *delay )
 {
     void server_update_block( int x, int y, int z, Type new_t,
-                              struct timeval *event_delay );
+                              const struct timeval *delay );
 
-    struct timeval delay = { 0, 0 };
-    server_update_block(x, y, z, new_t, &delay);
+    server_update_block(x, y, z, new_t, delay);
 }
 
-static void update_block_delayed(int x, int y, int z, Type new_t, int s, int us)
-{
-    void server_update_block( int x, int y, int z, Type new_t,
-                              struct timeval *event_delay );
 
-    struct timeval delay = { s, us };
-    server_update_block(x, y, z, new_t, &delay);
+static void update_block(int x, int y, int z, Type new_t)
+{
+    update_block_delayed(x, y, z, new_t, &zero_delay);
 }
 
 int hook_authorize_update( const Level *level, const Player *player,
@@ -155,32 +164,33 @@ int hook_authorize_update( const Level *level, const Player *player,
         case 1:
             switch (new_t)
             {
-            case BLOCK_COLORED1: new_t = BLOCK_LAVA2;       break;  /* red */
-            case BLOCK_COLORED3: new_t = BLOCK_SUPERSPONGE; break;  /* yellow */
-            case BLOCK_COLORED8: new_t = BLOCK_WATER2;      break;  /* blue */
+            case BLOCK_COLORED1:  new_t = BLOCK_LAVA2;       break; /* red */
+            case BLOCK_COLORED3:  new_t = BLOCK_SUPERSPONGE; break; /* yellow */
+            case BLOCK_COLORED8:  new_t = BLOCK_WATER2;      break; /* blue */
+#if 0
+            /* Disabled for now, because it cannot be deleted by the client! */
+            case BLOCK_COLORED14: new_t = BLOCK_ADMINIUM;    break; /* grey */
+#endif
             }
             break;
     }
-info("admin=%d", (int)player->admin);
-    if (!player->admin)
+
+    if (old_t != BLOCK_EMPTY && new_t != BLOCK_EMPTY)
     {
-        if (old_t != BLOCK_EMPTY && new_t != BLOCK_EMPTY)
-        {
-            /* replacing a block: */
-            if (is_player_replacable(old_t)) return -1;
-        }
-        else
-        if (old_t != BLOCK_EMPTY) /* new_t == BLOCK_EMPTY */
-        {
-            /* deleting a block: */
-            if (!is_player_deletable(old_t)) return -1;
-        }
-        else
-        if (new_t != BLOCK_EMPTY) /* old_t == BLOCK_EMPTY */
-        {
-            /* placing a block: */
-            if (!is_player_placeable(new_t)) return -1;
-        }
+        /* replacing a block: */
+        if (!is_player_replacable(old_t, player->admin)) return -1;
+    }
+    else
+    if (old_t != BLOCK_EMPTY) /* new_t == BLOCK_EMPTY */
+    {
+        /* deleting a block: */
+        if (!is_player_deletable(old_t, player->admin)) return -1;
+    }
+    else
+    if (new_t != BLOCK_EMPTY) /* old_t == BLOCK_EMPTY */
+    {
+        /* placing a block: */
+        if (!is_player_placeable(new_t, player->admin)) return -1;
     }
 
     if (new_t == BLOCK_EMPTY && !type_nearby(level, x, y, z, BLOCK_SPONGE, 3))
@@ -198,11 +208,11 @@ Type hook_client_block_type(Type t)
     return t&0x3f;
 }
 
-static void post_flow_event(int x, int y, int z)
+static void post_flow_event(int x, int y, int z, const struct timeval *delay)
 {
     Event new_ev;
     tv_now(&new_ev.base.time);
-    tv_add_us(&new_ev.base.time, FLOW_DELAY_USEC);
+    tv_add_tv(&new_ev.base.time, delay);
     new_ev.base.type = EVENT_TYPE_FLOW;
     new_ev.flow_event.x = x;
     new_ev.flow_event.y = y;
@@ -215,7 +225,7 @@ static void post_grow_event(int x, int y, int z)
     Event new_ev;
     tv_now(&new_ev.base.time);
     tv_add_s( &new_ev.base.time, GROW_DELAY_MIN_SEC +
-        rand()%(GROW_DELAY_MAX_SEC - GROW_DELAY_MIN_SEC + 1) );
+              rand()%(GROW_DELAY_MAX_SEC - GROW_DELAY_MIN_SEC + 1) );
     new_ev.base.type = EVENT_TYPE_GROW;
     new_ev.grow_event.x = x;
     new_ev.grow_event.y = y;
@@ -231,8 +241,6 @@ static void on_update(const Level *level, UpdateEvent *ev)
     {
     case BLOCK_SPONGE:
         {
-#if 1
-            /* Normal sponge */
             int x1 = max(ev->x - 3 + 1, 0), x2 = min(ev->x + 3, level->size.x);
             int y1 = max(ev->y - 3 + 1, 0), y2 = min(ev->y + 3, level->size.y);
             int z1 = max(ev->z - 3 + 1, 0), z2 = min(ev->z + 3, level->size.z);
@@ -249,7 +257,11 @@ static void on_update(const Level *level, UpdateEvent *ev)
                     }
                 }
             }
-#else
+        }
+        break;
+
+    case BLOCK_SUPERSPONGE:
+        {
             /* Flood-filling super sponge */
             int d;
             for (d = 0; d < 6; ++d)
@@ -260,21 +272,23 @@ static void on_update(const Level *level, UpdateEvent *ev)
                 Type t = level_get_block(level, nx, ny,nz);
                 if (is_fluid(t))
                 {
-                    update_block_delayed(nx, ny, nz, SPONGE, 1, 0);
+                    update_block_delayed(nx, ny, nz, BLOCK_SUPERSPONGE,
+                                         &supersponge_delay);
                 }
             }
-            update_block(ev->x, ev->y, ev->z, EMPTY);
-#endif
+            update_block(ev->x, ev->y, ev->z, BLOCK_EMPTY);
         }
         break;
 
     case BLOCK_WATER1:
     case BLOCK_WATER2:
+        post_flow_event(ev->x, ev->y, ev->z, &water_flow_delay);
+        break;
+
     case BLOCK_LAVA1:
     case BLOCK_LAVA2:
-        {
-            post_flow_event(ev->x, ev->y, ev->z);
-        } break;
+        post_flow_event(ev->x, ev->y, ev->z, &lava_flow_delay);
+        break;
 
     case BLOCK_EMPTY:
         if (ev->old_t == BLOCK_SPONGE)
@@ -292,9 +306,17 @@ static void on_update(const Level *level, UpdateEvent *ev)
                     {
                         if (x != ev->x || y != ev->y || z != ev->z)
                         {
-                            if (is_fluid(level_get_block(level, x, y, z)))
+                            switch (level_get_block(level, x, y, z))
                             {
-                                post_flow_event(x, y, z);
+                            case BLOCK_WATER1:
+                            case BLOCK_WATER2:
+                                post_flow_event(x, y, z, &water_flow_delay);
+                                break;
+
+                            case BLOCK_LAVA1:
+                            case BLOCK_LAVA2:
+                                post_flow_event(x, y, z, &water_flow_delay);
+                                break;
                             }
                         }
                     }

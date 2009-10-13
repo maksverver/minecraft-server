@@ -319,7 +319,7 @@ static void handle_player_HELO(Client *cl,
 }
 
 bool server_update_block( int x, int y, int z, Type new_t,
-                          struct timeval *event_delay )
+                          const struct timeval *event_delay )
 {
     bool res = false;  /* have clients been notified? */
 
@@ -683,7 +683,9 @@ static void run_server()
                 /* Execute tick */
                 server_tick();
 
-                printf("%s\n", (g_level->tick_count%2) ? "*tick*" : "\t*tock*");
+                printf( "%s (%d clients)\n",
+                        (g_level->tick_count%2) ? "*tick*    " : "    *tock*",
+                        g_num_clients );
 
                 /* Schedule next tick event */
                 tv_now(&now);

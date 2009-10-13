@@ -1,0 +1,23 @@
+
+Server chat commands:
+
+    /auth <password>
+
+        Authenticate with <password> to obtain admin status
+
+    /set tileset
+
+        Display current tileset setting
+
+    /set tileset <n>
+
+        Switch to tileset <n>
+
+Tileset 1:
+
+    Block type      Appearance          Effect
+    --------------- ------------------- -------------------
+    COLORED1        Red block           Place lava
+    COLORED3        Yellow block        Place super sponge
+    COLORED8        Blue block          Place water
+   (COLORED14       Dark grey block     Place adminium)

@@ -1,2 +1,3 @@
 server:
-- lava should flow slower than water
+- sponge should not work against lava (supersponge does!)
+- should save/restore event queue as well as world
