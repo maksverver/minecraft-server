@@ -180,7 +180,8 @@ int hook_authorize_update( const Level *level, const Player *player,
     if (old_t != BLOCK_EMPTY && new_t != BLOCK_EMPTY)
     {
         /* replacing a block: */
-        if (!is_player_replacable(old_t, player->admin)) return -1;
+        if (!is_player_replacable(old_t, player->admin) ||
+            !is_player_placeable(new_t, player->admin)) return -1;
     }
     else
     if (old_t != BLOCK_EMPTY) /* new_t == BLOCK_EMPTY */

@@ -400,7 +400,7 @@ static void handle_player_PLYU(Client *cl,
 {
     (void)player;  /* unused */
     cl->pl.pos.x = clip(x/32.0f, 0.0f, g_level->size.x);
-    cl->pl.pos.y = g_level->size.y;  /* don't clip height */
+    cl->pl.pos.y = y/32.0f;  /* don't clip height */
     cl->pl.pos.z = clip(z/32.0f, 0.0f, g_level->size.z);
     cl->pl.yaw   = clip(yaw/255.0f, 0.0f, 1.0f);
     cl->pl.pitch = clip(((signed char)pitch)/64.0f, -1.0f, 1.0f);
