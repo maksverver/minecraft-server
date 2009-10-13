@@ -16,6 +16,8 @@ const struct timeval
 static int min(int i, int j) { return i < j ? i : j; }
 static int max(int i, int j) { return i > j ? i : j; }
 static bool is_fluid(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_LAVA2; }
+static bool is_water(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_WATER2; }
+static bool is_lava(Type t) { return t >= BLOCK_LAVA1 && t <= BLOCK_LAVA2; }
 
 static bool is_player_placeable(Type t, bool admin)
 {
@@ -346,11 +348,21 @@ static void on_flow(const Level *level, FlowEvent *ev)
         nx = ev->x + DX[d];
         ny = ev->y + DY[d];
         nz = ev->z + DZ[d];
-        if (level_index_valid(level, nx, ny, nz) &&
-            level_get_block(level, nx, ny, nz) == BLOCK_EMPTY &&
-            !type_nearby(level, nx, ny, nz, BLOCK_SPONGE, 3))
+        if (level_index_valid(level, nx, ny, nz))
         {
-            update_block(nx, ny, nz, t);
+            Type u = level_get_block(level, nx, ny, nz);
+            if ( u == BLOCK_EMPTY &&
+                 !type_nearby(level, nx, ny, nz, BLOCK_SPONGE, 3))
+            {
+                /* Propagate fluid */
+                update_block(nx, ny, nz, t);
+            }
+            else
+            if ((is_water(t) && is_lava(u)) || (is_lava(t) && is_water(u)))
+            {
+                /* Water and lava make stone */
+                update_block(nx, ny, nz, BLOCK_STONE_GREY);
+            }
         }
     }
 }
