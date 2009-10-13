@@ -7,6 +7,7 @@
 #include "common/protocol.h"
 #include "common/timeval.h"
 #include <assert.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -24,7 +25,7 @@
 
 #define MAX_CLIENTS           32
 #define FRAME_USEC        250000    /* microseconds */
-#define SAVE_INTERVAL         30    /* seconds */
+#define SAVE_INTERVAL        120    /* seconds */
 
 #define MIN_BUFFER_SIZE  4000
 
@@ -55,6 +56,8 @@ static Level    *g_level;                   /* loaded level */
 static int      g_listen_fd;                /* TCP listen socket */
 static Client   g_clients[MAX_CLIENTS];     /* client slots */
 static int      g_num_clients;              /* number of connected clients */
+
+static volatile bool g_quit_requested;
 
 static void write_client(Client *cl, Byte *buf, int len)
 {
@@ -137,13 +140,13 @@ static void save_if_dirty()
 {
     if (event_queue_is_dirty())
     {
-        info("saving event queue....");
+        info("saving event queue");
         event_queue_write(EVENT_FILE);
     }
 
     if (g_level->dirty)
     {
-        info("saving level...");
+        info("saving level");
         level_save(g_level, LEVEL_FILE);
     }
 }
@@ -540,7 +543,12 @@ static void transmit_pending_messages(struct timeval *time_left)
         }
     }
 
-    select(nfds, &readfds, &writefds, NULL, time_left);
+    nfds = select(nfds, &readfds, &writefds, NULL, time_left);
+    if (nfds < 0)
+    {
+        error("select() failed");
+        return;
+    }
 
     if (FD_ISSET(g_listen_fd, &readfds))
     {
@@ -673,7 +681,7 @@ static void run_server()
     event_push(&event);
 
     /* Run indefinitely */
-    for (;;)
+    while (!g_quit_requested)
     {
         Event ev;
 
@@ -721,6 +729,7 @@ static void run_server()
 
         hook_on_event(g_level, &ev);
     }
+    info("quit requested");
 }
 
 static void open_server_socket()
@@ -743,6 +752,21 @@ static void open_server_socket()
     info("listening on port %d", ntohs(sa.sin_port));
 }
 
+static void sigint_handler()
+{
+    g_quit_requested = true;
+}
+
+static void register_signal_handlers()
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = &sigint_handler;
+    sigaction(SIGINT,  &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGQUIT, &sa, NULL);
+}
+
 int main()
 {
     g_level = level_load(LEVEL_FILE);
@@ -753,8 +777,11 @@ int main()
     else
         info("%d events restored to event queue", event_count());
 
+    register_signal_handlers();
+
     open_server_socket();
     run_server();
-
+    save_if_dirty();
+    info("exiting");
     return 0;
 }
