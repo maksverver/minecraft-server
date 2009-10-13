@@ -135,6 +135,12 @@ static void broadcast_message(int type, ...)
 
 static void save_if_dirty()
 {
+    if (event_queue_is_dirty())
+    {
+        info("saving event queue....");
+        event_queue_write(EVENT_FILE);
+    }
+
     if (g_level->dirty)
     {
         info("saving level...");
@@ -683,9 +689,9 @@ static void run_server()
                 /* Execute tick */
                 server_tick();
 
-                printf( "%s (%d clients)\n",
+                printf( "%s (%d clients; %d events)\n",
                         (g_level->tick_count%2) ? "*tick*    " : "    *tock*",
-                        g_num_clients );
+                        g_num_clients, (int)event_count() );
 
                 /* Schedule next tick event */
                 tv_now(&now);
@@ -741,7 +747,14 @@ int main()
 {
     g_level = level_load(LEVEL_FILE);
     if (!g_level) fatal("couldn't load level");
+
+    if (!event_queue_read(EVENT_FILE))
+        warn("couldn't restore event queue");
+    else
+        info("%d events restored to event queue", event_count());
+
     open_server_socket();
     run_server();
+
     return 0;
 }

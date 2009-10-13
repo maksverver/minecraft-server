@@ -3,6 +3,9 @@
 
 #include "common/timeval.h"
 #include <stdlib.h>
+#include <stdbool.h>
+
+#define EVENT_FILE      "events.txt.gz"
 
 typedef enum EventType {
     EVENT_TYPE_NONE = 0,
@@ -48,8 +51,9 @@ typedef struct Event
 {
     EventBase base;
     union {
-        UpdateEvent update_event;
+        TickEvent   tick_event;
         SaveEvent   save_event;
+        UpdateEvent update_event;
         FlowEvent   flow_event;
         GrowEvent   grow_event;
     };
@@ -68,5 +72,14 @@ Event *event_peek();
 /* Remove the next event from the queue. If `event' is non-NULL, the event
    removed is copied to `event' first. */
 void event_pop(Event *event);
+
+/* Return whether the queue has been saved since the last modification. */
+bool event_queue_is_dirty();
+
+/* Write all events in the queue to `path' */
+bool event_queue_write(const char *path);
+
+/* Read all events from path into the queue */
+bool event_queue_read(const char *path);
 
 #endif /* ndef EVENTS_H_INCLUDED */
