@@ -11,8 +11,7 @@ const struct timeval
     zero_delay        = { 0,      0 },
     water_flow_delay  = { 0, 300000 }, /* 300ms */
     lava_flow_delay   = { 3,      0 }, /* 3s */
-    supersponge_delay = { 0, 250000 }, /* 250ms */
-    fall_delay        = { 0,   1000 }; /* 1ms */ 
+    supersponge_delay = { 0, 200000 }; /* 200ms */
 
 static int min(int i, int j) { return i < j ? i : j; }
 static int max(int i, int j) { return i > j ? i : j; }
@@ -275,15 +274,20 @@ static void activate_block(const Level *level, int x, int y, int z)
         break;
 
     case BLOCK_STONE_YELLOW:
+    case BLOCK_STONE_MIXED:
         {
-            if (y > 0 && !is_supporter(level_get_block(level, x, y - 1, z)))
+            /* see if this block can fall down: */
+            int ny = y;
+            while (ny > 0 &&
+                   !is_supporter(level_get_block(level, x, ny - 1, z))) --ny;
+            if (y > ny)
             {
-                update_block(x, y, z, BLOCK_EMPTY);
-                update_block_delayed(x, y - 1, z, BLOCK_STONE_YELLOW,
-                                     &fall_delay);
+                /* fall down, removing everything in the way: */
+                while (y > ny)
+                    update_block(x, y--, z, BLOCK_EMPTY);
+                update_block(x, y, z, t);
             }
         }
-
         break;
 
     default:

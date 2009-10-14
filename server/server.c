@@ -360,7 +360,6 @@ bool server_update_block( int x, int y, int z, Type new_t,
             res = true;
         }
 
-        /* Handle implicit update event: */
         if (event_delay != NULL)
         {
             Event ev;
@@ -371,15 +370,8 @@ bool server_update_block( int x, int y, int z, Type new_t,
             ev.update_event.z     = z;
             ev.update_event.old_t = old_t;
             ev.update_event.new_t = new_t;
-            if (event_delay->tv_sec == 0 && event_delay->tv_usec == 0)
-            {
-                hook_on_event(g_level, &ev);
-            }
-            else
-            {
-                tv_add_tv(&ev.base.time, event_delay);
-                event_push(&ev);
-            }
+            tv_add_tv(&ev.base.time, event_delay);
+            event_push(&ev);
         }
     }
 
