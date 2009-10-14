@@ -356,9 +356,14 @@ static void on_update(const Level *level, UpdateEvent *ev)
     }
 
     if (ev->old_t == BLOCK_SPONGE)
+    {
         activate_blocks_nearby(level, ev->x, ev->y, ev->z, 3);
+    }
     else
+    {
+        activate_block(level, ev->x, ev->y, ev->z);
         activate_neighbours(level, ev->x, ev->y, ev->z);
+    }
 }
 
 static void on_flow(const Level *level, FlowEvent *ev)

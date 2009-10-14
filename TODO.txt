@@ -1,6 +1,11 @@
 server:
 - sponge should not work against lava (supersponge does!)
 - only send player position updates if a player's position has changed
+- persist level properties (and allow admins to change them):
+   - server name
+   - server size (width/height/depth)
+   - server description
+   - player spawn point
 
 protocol:
 - make client understand when it gets admin powers (so adminium can be deleted)
