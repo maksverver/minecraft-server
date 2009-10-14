@@ -61,11 +61,11 @@ static volatile bool g_quit_requested;
 
 static void write_client(Client *cl, Byte *buf, int len)
 {
-    ssize_t written = (cl->output) ? 0 : write(cl->fd, buf, len);
+    ssize_t written = (cl->output) ? 0 : send(cl->fd, buf, len, MSG_NOSIGNAL);
 
     if (written < 0)
     {
-        warn("write to client %d failed\n", cl - g_clients);
+        warn("write to client %d failed", cl - g_clients);
         written = 0;
     }
 
@@ -136,6 +136,16 @@ static void broadcast_message(int type, ...)
     }
 }
 
+static void server_message(const char *fmt, ...)
+{
+    char buf[STRING_LEN + 1];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    broadcast_message(PROTO_CHAT, -1, buf);
+}
+
 static void save_if_dirty()
 {
     if (event_queue_is_dirty())
@@ -154,21 +164,26 @@ static void save_if_dirty()
 static void disconnect(Client *cl)
 {
     Buffer *list, *next;
-    bool loaded = cl->loaded;
 
     assert(cl->fd);
+
+    if (cl->loaded)
+    {
+        broadcast_message(PROTO_DISC, cl - g_clients);
+        server_message("%s left the game", cl->pl.name);
+    }
+
     for (list = cl->output; list != NULL; list = next)
     {
         next = list->next;
         free(list);
     }
     close(cl->fd);
+
     memset(cl, 0, sizeof(Client));
     --g_num_clients;
 
-    if (loaded) broadcast_message(PROTO_DISC, cl - g_clients);
-
-    info("disconnected client %d\n", cl - g_clients);
+    info("disconnected client %d", cl - g_clients);
 
     /* If last client exits, save the level immediately, since it will not be
        modified until a new client connects when we need to save it anyway. */
@@ -266,25 +281,25 @@ static bool send_world_data(Client *cl)
 
 static void send_initial_position(Client *dest, Client *subj)
 {
-    send_message(dest, PROTO_PLYC,
-        (dest == subj) ? 255 : (subj - g_clients),
-        subj->pl.name,
-        (int)(32*subj->pl.pos.x),
-        (int)(32*subj->pl.pos.y),
-        (int)(32*subj->pl.pos.z),
-        (int)(255*subj->pl.yaw),
-        (int)(64*subj->pl.pitch)&0xff );
+    send_message( dest, PROTO_PLYC,
+                  (dest == subj) ? 255 : (subj - g_clients),
+                  subj->pl.name,
+                  (int)(32*subj->pl.pos.x),
+                  (int)(32*subj->pl.pos.y),
+                  (int)(32*subj->pl.pos.z),
+                  (int)(255*subj->pl.yaw),
+                  (int)(64*subj->pl.pitch)&0xff );
 }
 
 static void send_updated_position(Client *dest, Client *subj)
 {
-    send_message(dest, PROTO_PLYU,
-        (dest == subj) ? 255 : (subj - g_clients),
-        (int)(32*subj->pl.pos.x),
-        (int)(32*subj->pl.pos.y),
-        (int)(32*subj->pl.pos.z),
-        (int)(255*subj->pl.yaw),
-        (int)(64*subj->pl.pitch)&0xff );
+    send_message( dest, PROTO_PLYU,
+                  (dest == subj) ? 255 : (subj - g_clients),
+                  (int)(32*subj->pl.pos.x),
+                  (int)(32*subj->pl.pos.y),
+                  (int)(32*subj->pl.pos.z),
+                  (int)(255*subj->pl.yaw),
+                  (int)(64*subj->pl.pitch)&0xff );
 }
 
 static void handle_player_HELO(Client *cl,
@@ -296,7 +311,7 @@ static void handle_player_HELO(Client *cl,
 
     if (cl->loaded)
     {
-        error("client %d already identified\n", cl - g_clients);
+        error("client %d already identified", cl - g_clients);
         return;
     }
 
@@ -315,6 +330,8 @@ static void handle_player_HELO(Client *cl,
     send_world_data(cl);
     send_message(cl, PROTO_SIZE, g_level->size.x, g_level->size.y, g_level->size.z);
 
+    /* Send other player's positions to player, and vice versa */
+    server_message("%s joined the game", name);
     for (subj = &g_clients[0]; subj != &g_clients[MAX_CLIENTS]; ++subj)
     {
         if (subj->loaded)
@@ -324,6 +341,7 @@ static void handle_player_HELO(Client *cl,
         }
     }
 
+    send_initial_position(cl, cl);
     cl->loaded = true;
 
     info("client %d hailed with name `%s'", cl - g_clients, name);
@@ -620,13 +638,13 @@ static void transmit_pending_messages(struct timeval *time_left)
         {
             while (cl->output)
             {
-                ssize_t nwritten = write(cl->fd,
+                ssize_t nwritten = send(cl->fd,
                     cl->output->data + cl->output->pos,
-                    cl->output->len - cl->output->pos);
+                    cl->output->len - cl->output->pos, MSG_NOSIGNAL);
 
                 if (nwritten < 0)
                 {
-                    warn("write to client %d failed\n", cl - g_clients);
+                    warn("write to client %d failed", cl - g_clients);
                     nwritten = 0;
                 }
 

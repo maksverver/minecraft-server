@@ -1,6 +1,6 @@
 server:
 - sponge should not work against lava (supersponge does!)
-- should save/restore event queue as well as world
+- only send player position updates if a player's position has changed
 
 protocol:
 - make client understand when it gets admin powers (so adminium can be deleted)
