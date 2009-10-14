@@ -176,6 +176,11 @@ static void disconnect(Client *cl)
         free(list);
     }
     close(cl->fd);
+    cl->loaded = false;
+
+    /* Send notification while we still know the client's name: */
+    server_message("%s left the game", cl->pl.name);
+
     memset(cl, 0, sizeof(Client));
     --g_num_clients;
 
