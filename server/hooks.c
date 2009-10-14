@@ -182,10 +182,7 @@ int hook_authorize_update( const Level *level, const Player *player,
         case BLOCK_COLORED1:  new_t = BLOCK_LAVA2;       break; /* red */
         case BLOCK_COLORED3:  new_t = BLOCK_SUPERSPONGE; break; /* yellow */
         case BLOCK_COLORED8:  new_t = BLOCK_WATER2;      break; /* blue */
-#if 0
-        /* Disabled for now, because it cannot be deleted by the client! */
         case BLOCK_COLORED14: new_t = BLOCK_ADMINIUM;    break; /* grey */
-#endif
         }
         break;
     }

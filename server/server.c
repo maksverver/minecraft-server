@@ -325,7 +325,7 @@ static void handle_player_HELO(Client *cl,
     cl->pl.tileset  = 0;
     cl->pl.admin    = false;
 
-    send_message(cl, PROTO_HELO, b0, g_level->name, g_level->creator, 0);
+    send_message(cl, PROTO_HELO, b0, g_level->name, g_level->creator, 100);
     send_message(cl, PROTO_STRT);
     send_world_data(cl);
     send_message(cl, PROTO_SIZE, g_level->size.x, g_level->size.y, g_level->size.z);
