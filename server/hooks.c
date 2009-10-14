@@ -19,6 +19,34 @@ static bool is_fluid(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_LAVA2; }
 static bool is_water(Type t) { return t >= BLOCK_WATER1 && t <= BLOCK_WATER2; }
 static bool is_lava(Type t) { return t >= BLOCK_LAVA1 && t <= BLOCK_LAVA2; }
 
+static bool is_plant(Type t)
+{
+    switch (t)
+    {
+    case BLOCK_SAPLING:
+    case BLOCK_FLOWER_YELLOW:
+    case BLOCK_FLOWER_RED:
+    case BLOCK_MUSHROOM:
+    case BLOCK_TOADSTOOL:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+static bool is_light_blocker(Type t)
+{
+    return t != BLOCK_EMPTY  && t != BLOCK_GLASS &&
+           t != BLOCK_LEAVES && !is_plant(t);
+}
+
+static bool is_soil(Type t)
+{
+    return t == BLOCK_DIRT || t == BLOCK_GRASS;
+}
+
+
 static bool is_player_placeable(Type t, bool admin)
 {
     switch (t)
@@ -148,18 +176,18 @@ int hook_authorize_update( const Level *level, const Player *player,
     /* Handle tileset mapping: */
     switch (player->tileset)
     {
-        case 1:
-            switch (new_t)
-            {
-            case BLOCK_COLORED1:  new_t = BLOCK_LAVA2;       break; /* red */
-            case BLOCK_COLORED3:  new_t = BLOCK_SUPERSPONGE; break; /* yellow */
-            case BLOCK_COLORED8:  new_t = BLOCK_WATER2;      break; /* blue */
+    case 1:
+        switch (new_t)
+        {
+        case BLOCK_COLORED1:  new_t = BLOCK_LAVA2;       break; /* red */
+        case BLOCK_COLORED3:  new_t = BLOCK_SUPERSPONGE; break; /* yellow */
+        case BLOCK_COLORED8:  new_t = BLOCK_WATER2;      break; /* blue */
 #if 0
-            /* Disabled for now, because it cannot be deleted by the client! */
-            case BLOCK_COLORED14: new_t = BLOCK_ADMINIUM;    break; /* grey */
+        /* Disabled for now, because it cannot be deleted by the client! */
+        case BLOCK_COLORED14: new_t = BLOCK_ADMINIUM;    break; /* grey */
 #endif
-            }
-            break;
+        }
+        break;
     }
 
     if (old_t != BLOCK_EMPTY && new_t != BLOCK_EMPTY)
@@ -180,6 +208,10 @@ int hook_authorize_update( const Level *level, const Player *player,
         /* placing a block: */
         if (!is_player_placeable(new_t, player->admin)) return -1;
     }
+
+    /* Plants must be placed on soil: */
+    if (is_plant(new_t) && !is_soil(level_get_block(level, x, y - 1, z)))
+        return -1;
 
     info("User placing block of type %d at (%d,%d,%d)\n", (int)new_t, x, y, z);
 
@@ -203,23 +235,6 @@ static void post_flow_event(int x, int y, int z, const struct timeval *delay)
     event_push(&new_ev);
 }
 
-/* Queues a flow event if the block at x/y/z is fluid. */
-static void try_to_flow(const Level *level, int x, int y, int z)
-{
-    switch (level_get_block(level, x, y, z))
-    {
-    case BLOCK_WATER1:
-    case BLOCK_WATER2:
-        post_flow_event(x, y, z, &water_flow_delay);
-        break;
-
-    case BLOCK_LAVA1:
-    case BLOCK_LAVA2:
-        post_flow_event(x, y, z, &lava_flow_delay);
-        break;
-    }
-}
-
 static void post_grow_event(int x, int y, int z)
 {
     Event new_ev;
@@ -231,6 +246,68 @@ static void post_grow_event(int x, int y, int z)
     new_ev.grow_event.y = y;
     new_ev.grow_event.z = z;
     event_push(&new_ev);
+}
+
+static void activate_block(const Level *level, int x, int y, int z)
+{
+    Type t = level_get_block(level, x, y, z); 
+    switch (t)
+    {
+    case BLOCK_WATER1:
+    case BLOCK_WATER2:
+        post_flow_event(x, y, z, &water_flow_delay);
+        break;
+
+    case BLOCK_LAVA1:
+    case BLOCK_LAVA2:
+        post_flow_event(x, y, z, &lava_flow_delay);
+        break;
+
+    case BLOCK_DIRT:
+        post_grow_event(x, y, z);
+        break;
+
+    case BLOCK_GRASS:
+        if (is_light_blocker(level_get_block(level, x, y + 1, z)))
+            update_block(x, y, z, BLOCK_DIRT);
+        break;
+
+    default:
+        if (is_plant(t) && !is_soil(level_get_block(level, x, y - 1, z)))
+            update_block(x, y, z, BLOCK_EMPTY);
+        break;
+    }
+}
+
+/* Activates blocks in the 2d+1 sized cube centered at x/y/z */
+static void activate_blocks_nearby(const Level *level,
+                                   int x, int y, int z, int d)
+{
+    int x1 = max(x - d, 0), x2 = min(x + d + 1, level->size.x);
+    int y1 = max(y - d, 0), y2 = min(y + d + 1, level->size.y);
+    int z1 = max(z - d, 0), z2 = min(z + d + 1, level->size.z);
+
+    /* activate nearby blocks */
+    for (x = x1; x < x2; ++x)
+    {
+        for (y = y1; y < y2; ++y)
+        {
+            for (z = z1; z < z2; ++z)
+            {
+                activate_block(level, x, y, z);
+            }
+        }
+    }
+}
+
+static void activate_neighbours(const Level *level, int x, int y, int z)
+{
+    int d;
+
+    for (d = 0; d < 6; ++d)
+    {
+        activate_block(level, x + DX[d], y + DY[d], z + DZ[d]);
+    }
 }
 
 static void on_update(const Level *level, UpdateEvent *ev)
@@ -279,39 +356,12 @@ static void on_update(const Level *level, UpdateEvent *ev)
             update_block(ev->x, ev->y, ev->z, BLOCK_EMPTY);
         }
         break;
-
-    case BLOCK_WATER1:
-    case BLOCK_WATER2:
-    case BLOCK_LAVA1:
-    case BLOCK_LAVA2:
-        try_to_flow(level, ev->x, ev->y, ev->z);
-        break;
-
-    case BLOCK_EMPTY:
-        {
-            int d = (ev->old_t == BLOCK_SPONGE) ? 3 : 1;
-            int x1 = max(ev->x - d, 0), x2 = min(ev->x + d + 1, level->size.x);
-            int y1 = max(ev->y - d, 0), y2 = min(ev->y + d + 1, level->size.y);
-            int z1 = max(ev->z - d, 0), z2 = min(ev->z + d + 1, level->size.z);
-            int x, y, z;
-
-            for (x = x1; x < x2; ++x)
-            {
-                for (y = y1; y < y2; ++y)
-                {
-                    for (z = z1; z < z2; ++z)
-                    {
-                        try_to_flow(level, x, y, z);
-                    }
-                }
-            }
-        }
-        break;
-
-    case BLOCK_DIRT:
-        post_grow_event(ev->x, ev->y, ev->z);
-        break;
     }
+
+    if (ev->old_t == BLOCK_SPONGE)
+        activate_blocks_nearby(level, ev->x, ev->y, ev->z, 3);
+    else
+        activate_neighbours(level, ev->x, ev->y, ev->z);
 }
 
 static void on_flow(const Level *level, FlowEvent *ev)
@@ -351,10 +401,8 @@ static void on_flow(const Level *level, FlowEvent *ev)
 
 static void on_grow(const Level *level, GrowEvent *ev)
 {
-    Type t = level_get_block(level, ev->x, ev->y, ev->z);
-
-    if (t == BLOCK_DIRT &&
-        level_get_block(level, ev->x, ev->y + 1, ev->z) == BLOCK_EMPTY)
+    if (level_get_block(level, ev->x, ev->y, ev->z) == BLOCK_DIRT &&
+        !is_light_blocker(level_get_block(level, ev->x, ev->y + 1, ev->z)))
     {
         update_block(ev->x, ev->y, ev->z, BLOCK_GRASS);
     }

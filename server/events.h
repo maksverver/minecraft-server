@@ -34,17 +34,17 @@ typedef struct SaveEvent
 
 typedef struct UpdateEvent
 {
-    unsigned char x, y, z, old_t, new_t;
+    unsigned short x, y, z, old_t, new_t;
 } UpdateEvent;
 
 typedef struct FlowEvent
 {
-    unsigned char x, y, z;
+    unsigned short x, y, z;
 } FlowEvent;
 
 typedef struct GrowEvent
 {
-    unsigned char x, y, z;
+    unsigned short x, y, z;
 } GrowEvent;
 
 typedef struct Event

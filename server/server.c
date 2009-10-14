@@ -292,6 +292,8 @@ static void handle_player_HELO(Client *cl,
 {
     Client *subj;
 
+    (void)b1;  /* unused (purpose unknown) */
+
     if (cl->loaded)
     {
         error("client %d already identified\n", cl - g_clients);
@@ -308,7 +310,7 @@ static void handle_player_HELO(Client *cl,
     cl->pl.tileset  = 0;
     cl->pl.admin    = false;
 
-    send_message(cl, PROTO_HELO, b0, g_level->name, g_level->creator, b1);
+    send_message(cl, PROTO_HELO, b0, g_level->name, g_level->creator, 0);
     send_message(cl, PROTO_STRT);
     send_world_data(cl);
     send_message(cl, PROTO_SIZE, g_level->size.x, g_level->size.y, g_level->size.z);
