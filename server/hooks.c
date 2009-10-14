@@ -46,6 +46,10 @@ static bool is_soil(Type t)
     return t == BLOCK_DIRT || t == BLOCK_GRASS;
 }
 
+static bool is_supporter(Type t)
+{
+    return t != BLOCK_EMPTY && !is_plant(t) && !is_fluid(t);
+}
 
 static bool is_player_placeable(Type t, bool admin)
 {
@@ -267,6 +271,18 @@ static void activate_block(const Level *level, int x, int y, int z)
     case BLOCK_GRASS:
         if (is_light_blocker(level_get_block(level, x, y + 1, z)))
             update_block(x, y, z, BLOCK_DIRT);
+        break;
+
+    case BLOCK_STONE_YELLOW:
+        {
+            if (y > 0 && !is_supporter(level_get_block(level, x, y - 1, z)))
+            {
+                /* N.B. order of updates matters! */
+                update_block(x, y - 1, z, BLOCK_STONE_YELLOW);
+                update_block(x, y,     z, BLOCK_EMPTY);
+            }
+        }
+
         break;
 
     default:
