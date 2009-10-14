@@ -61,7 +61,7 @@ static volatile bool g_quit_requested;
 
 static void write_client(Client *cl, Byte *buf, int len)
 {
-    ssize_t written = (cl->output) ? 0 : send(cl->fd, buf, len, MSG_NOSIGNAL);
+    ssize_t written = (cl->output) ? 0 : write(cl->fd, buf, len);
 
     if (written < 0)
     {
@@ -164,30 +164,24 @@ static void save_if_dirty()
 static void disconnect(Client *cl)
 {
     Buffer *list, *next;
+    bool loaded = cl->loaded;
 
     assert(cl->fd);
 
-    if (cl->loaded)
-    {
-        broadcast_message(PROTO_DISC, cl - g_clients);
-        server_message("%s left the game", cl->pl.name);
-    }
-
+    /* Clear client structure immediately, to avoid triggering SIGPIPE by
+       writing to a broken socket when broadcasting updates later. */
     for (list = cl->output; list != NULL; list = next)
     {
         next = list->next;
         free(list);
     }
     close(cl->fd);
-
     memset(cl, 0, sizeof(Client));
     --g_num_clients;
 
-    info("disconnected client %d", cl - g_clients);
+    if (loaded) broadcast_message(PROTO_DISC, cl - g_clients);
 
-    /* If last client exits, save the level immediately, since it will not be
-       modified until a new client connects when we need to save it anyway. */
-    if (g_num_clients == 0) save_if_dirty();
+    info("disconnected client %d\n", cl - g_clients);
 }
 
 static void read_byte(Byte **buf, int *len, Byte *out)
@@ -638,9 +632,9 @@ static void transmit_pending_messages(struct timeval *time_left)
         {
             while (cl->output)
             {
-                ssize_t nwritten = send(cl->fd,
+                ssize_t nwritten = write(cl->fd,
                     cl->output->data + cl->output->pos,
-                    cl->output->len - cl->output->pos, MSG_NOSIGNAL);
+                    cl->output->len - cl->output->pos);
 
                 if (nwritten < 0)
                 {
